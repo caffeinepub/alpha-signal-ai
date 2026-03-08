@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MarketAsset } from "../backend.d";
+import { useBinanceKlines } from "./useBinanceKlines";
+import { useLiquidationData } from "./useLiquidationData";
 import { useMarketWebSocket } from "./useMarketWebSocket";
+import type { TimeframeMatrix } from "./useMultiTimeframe";
+import { useMultiTimeframe } from "./useMultiTimeframe";
+import { useOrderBook } from "./useOrderBook";
+import { useSmartMoneyFlow } from "./useSmartMoneyFlow";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -63,6 +69,21 @@ export interface EngineSignal {
   fakeBreakoutDirection: "bullish" | "bearish" | null;
   signalTime: Date | null;
   isLocked: boolean;
+  // Order book confirmation (BTC only)
+  orderBookConfirmed: boolean;
+  liquidationConfirmed: boolean;
+  orderBookBuyPressure: number;
+  orderBookSellPressure: number;
+  liquidationBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  // Smart money confirmation
+  smartMoneyConfirmed: boolean;
+  whaleActivity: "ACCUMULATION" | "DISTRIBUTION" | "NEUTRAL";
+  openInterestChange: number;
+  fundingRate: number;
+  // Multi-timeframe alignment
+  timeframeMatrix: TimeframeMatrix | null;
+  alignmentAllowed: boolean;
+  alignmentScore: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,11 +290,15 @@ interface RawSignalScores {
 function computeRawScores(
   asset: MarketAsset,
   priceHistory: number[],
+  realCloses1m?: number[],
+  realCloses3m?: number[],
+  realVolumes1m?: number[],
 ): RawSignalScores {
   const price = asset.price;
   const baseVolume = asset.volume / 50;
 
   // Three timeframe series (synthetic — anchored to live price)
+  // Real kline data overrides synthetic for 1m and 3m when available
   const series5m = generateOHLCV(price, baseVolume, 1.8, 0);
   const series3m = generateOHLCV(price, baseVolume, 1.0, 137);
   const series1m = generateOHLCV(price, baseVolume, 0.5, 271);
@@ -296,18 +321,40 @@ function computeRawScores(
   }
   // Bearish trend → 0 points (pure absence of bull trend)
 
-  // ── 3m confirmation using live tick history ────────────────────────────────
-  const closes3m = series3m.closes;
+  // ── 3m confirmation using real kline closes (or live tick history fallback) ─
+  // Prefer real 3m kline closes when available (real candle close triggered)
+  const closes3m =
+    realCloses3m && realCloses3m.length >= 10 ? realCloses3m : series3m.closes;
   const opens3m = series3m.opens;
 
-  // Use real price history for higher-high / lower-low detection when available
   let confirmation3m = 0;
   let confirmation3mBullish = false;
   let higherHighs = false;
   let lowerLows = false;
   let rsi3m: number;
 
-  if (priceHistory.length >= 60) {
+  // If we have real 3m kline closes — use them for structure detection
+  if (closes3m.length >= 30) {
+    const recentWindow = closes3m.slice(-15);
+    const priorWindow = closes3m.slice(-30, -15);
+    higherHighs =
+      priorWindow.length > 0 &&
+      Math.max(...recentWindow) > Math.max(...priorWindow);
+    lowerLows =
+      priorWindow.length > 0 &&
+      Math.min(...recentWindow) < Math.min(...priorWindow);
+    rsi3m = calcRSI(closes3m);
+
+    if (higherHighs && rsi3m > 55) {
+      confirmation3m = 15;
+      confirmation3mBullish = true;
+    } else if (lowerLows && rsi3m < 45) {
+      confirmation3m = 0;
+    } else {
+      confirmation3m = 5;
+    }
+  } else if (priceHistory.length >= 60) {
+    // Fall back to live tick history
     const recentWindow = priceHistory.slice(-30);
     const priorWindow = priceHistory.slice(-60, -30);
     higherHighs =
@@ -323,9 +370,9 @@ function computeRawScores(
       confirmation3m = 15;
       confirmation3mBullish = true;
     } else if (lowerLows && rsi3m < 45) {
-      confirmation3m = 0; // bearish confirmation → 0 for bull score
+      confirmation3m = 0;
     } else {
-      confirmation3m = 5; // neutral
+      confirmation3m = 5;
     }
   } else {
     // Fall back to synthetic 3m series candle direction
@@ -345,39 +392,54 @@ function computeRawScores(
     }
   }
 
-  // ── 1m indicators (momentum) — use live tick history when available ────────
-  const closes1m = series1m.closes;
-  const volumes1m = series1m.volumes;
+  // ── 1m indicators (momentum) — use real kline closes when available ─────────
+  // Prefer real 1m kline closes for EMA9/20 calculation
+  const closes1m =
+    realCloses1m && realCloses1m.length >= 20 ? realCloses1m : series1m.closes;
+  const volumes1m =
+    realVolumes1m && realVolumes1m.length >= 5
+      ? realVolumes1m
+      : series1m.volumes;
 
   let ema9_1m: number;
   let ema20_1m: number;
   let priceRising = false;
   let usingLiveTicks = false;
 
-  if (priceHistory.length >= 20) {
+  // Priority: real kline closes > live tick history > synthetic
+  if (closes1m !== series1m.closes && closes1m.length >= 20) {
+    // Using real 1m kline closes
+    usingLiveTicks = true;
+    const ema9Arr = calcEMA(closes1m, 9);
+    const ema20Arr = calcEMA(closes1m, 20);
+    ema9_1m = ema9Arr[closes1m.length - 1];
+    ema20_1m = ema20Arr[closes1m.length - 1];
+    if (closes1m.length >= 5) {
+      const last = closes1m.length - 1;
+      priceRising = closes1m[last] > closes1m[last - 4];
+    }
+  } else if (priceHistory.length >= 20) {
     usingLiveTicks = true;
     const liveEma9Arr = calcEMA(priceHistory, 9);
     const liveEma20Arr = calcEMA(priceHistory, 20);
     ema9_1m = liveEma9Arr[priceHistory.length - 1];
     ema20_1m = liveEma20Arr[priceHistory.length - 1];
 
-    // Price direction from last 5 ticks
     if (priceHistory.length >= 5) {
       const last = priceHistory.length - 1;
       priceRising = priceHistory[last] > priceHistory[last - 4];
     }
   } else {
     // Fall back to synthetic 1m series
-    const ema9Arr1m = calcEMA(closes1m, 9);
-    const ema20Arr1m = calcEMA(closes1m, 20);
-    const last1 = closes1m.length - 1;
+    const ema9Arr1m = calcEMA(series1m.closes, 9);
+    const ema20Arr1m = calcEMA(series1m.closes, 20);
+    const last1 = series1m.closes.length - 1;
     ema9_1m = ema9Arr1m[last1];
     ema20_1m = ema20Arr1m[last1];
   }
 
   // Volume spike detection
-  // For BTC: use asset.volume as proxy for live volume. For XAU (no live volume): synthetic
-  const last1Idx = closes1m.length - 1;
+  const last1Idx = volumes1m.length - 1;
   const recentVol1m = volumes1m[last1Idx];
   const avgVol1m =
     volumes1m.slice(-20).reduce((a, b) => a + b, 0) /
@@ -733,11 +795,32 @@ const LOCK_DURATION_MS = 3 * 60 * 1000; // 3 minutes
 // Full signal build from asset + raw scores
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface OrderBookConfirmation {
+  buyPressure: number;
+  sellPressure: number;
+  isLoading: boolean;
+}
+
+interface LiquidationConfirmation {
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+}
+
+interface SmartMoneyConfirmation {
+  whaleActivity: "ACCUMULATION" | "DISTRIBUTION" | "NEUTRAL";
+  openInterestChange: number;
+  fundingRate: number;
+  isLoading: boolean;
+}
+
 function buildSignal(
   asset: MarketAsset,
   scores: RawSignalScores,
   lockEntry: LockEntry | undefined,
   lastUpdate: Date | null,
+  orderBook?: OrderBookConfirmation,
+  liquidation?: LiquidationConfirmation,
+  smartMoney?: SmartMoneyConfirmation,
+  tfMatrix?: TimeframeMatrix,
 ): EngineSignal {
   const { timeframeScores } = scores;
   const price = asset.price;
@@ -758,10 +841,36 @@ function buildSignal(
   } else {
     // No lock or lock expired
     const total = timeframeScores.total;
-    if (total > 75) direction = "STRONG BUY";
-    else if (total < 25) direction = "STRONG SELL";
-    else direction = "WAIT";
+    let rawDir: EngineSignal["direction"];
+    if (total > 75) rawDir = "STRONG BUY";
+    else if (total < 25) rawDir = "STRONG SELL";
+    else rawDir = "WAIT";
 
+    // For BTC: apply order book confirmation gating
+    if (asset.symbol === "BTC" && orderBook && !orderBook.isLoading) {
+      if (rawDir === "STRONG BUY" && orderBook.buyPressure < 60) {
+        rawDir = "WAIT";
+      } else if (rawDir === "STRONG SELL" && orderBook.sellPressure < 60) {
+        rawDir = "WAIT";
+      }
+    }
+
+    // For BTC: apply smart money gating (after order book gating)
+    if (asset.symbol === "BTC" && smartMoney && !smartMoney.isLoading) {
+      if (
+        rawDir === "STRONG BUY" &&
+        smartMoney.whaleActivity === "DISTRIBUTION"
+      ) {
+        rawDir = "WAIT";
+      } else if (
+        rawDir === "STRONG SELL" &&
+        smartMoney.whaleActivity === "ACCUMULATION"
+      ) {
+        rawDir = "WAIT";
+      }
+    }
+
+    direction = rawDir;
     entryPrice = price;
     signalTime =
       direction !== "WAIT" ? (lockEntry?.signalTime ?? new Date()) : null;
@@ -805,12 +914,71 @@ function buildSignal(
     total: timeframeScores.total,
   };
 
+  // Order book & liquidation confirmation fields
+  const obBuyPressure = orderBook?.buyPressure ?? 50;
+  const obSellPressure = orderBook?.sellPressure ?? 50;
+  const liqBias = liquidation?.bias ?? "NEUTRAL";
+
+  let orderBookConfirmed: boolean;
+  let liquidationConfirmed: boolean;
+
+  if (asset.symbol === "BTC") {
+    if (direction === "STRONG BUY") {
+      orderBookConfirmed = obBuyPressure > 60;
+      liquidationConfirmed = liqBias === "BULLISH";
+    } else if (direction === "STRONG SELL") {
+      orderBookConfirmed = obSellPressure > 60;
+      liquidationConfirmed = liqBias === "BEARISH";
+    } else {
+      orderBookConfirmed = false;
+      liquidationConfirmed = false;
+    }
+  } else {
+    // XAU — not applicable, always true
+    orderBookConfirmed = true;
+    liquidationConfirmed = true;
+  }
+
+  // Smart money confirmation fields
+  const smWhaleActivity = smartMoney?.whaleActivity ?? "NEUTRAL";
+  const smOIChange = smartMoney?.openInterestChange ?? 0;
+  const smFundingRate = smartMoney?.fundingRate ?? 0;
+
+  let smartMoneyConfirmed: boolean;
+  if (direction === "STRONG BUY") {
+    smartMoneyConfirmed = smWhaleActivity !== "DISTRIBUTION";
+  } else if (direction === "STRONG SELL") {
+    smartMoneyConfirmed = smWhaleActivity !== "ACCUMULATION";
+  } else {
+    smartMoneyConfirmed = false;
+  }
+
+  // Apply OI + funding rate bonus/penalty to displayed confidence
+  let adjustedConfidence = timeframeScores.total;
+  if (smartMoney && !smartMoney.isLoading) {
+    if (smOIChange > 0 && smFundingRate > 0) {
+      adjustedConfidence = Math.min(100, adjustedConfidence + 3);
+    } else if (smOIChange < 0 && smFundingRate < 0) {
+      adjustedConfidence = Math.max(0, adjustedConfidence - 3);
+    }
+  }
+
+  // Blend multi-timeframe alignment score into confidence
+  // alignmentScore 0–4: each point above 2 adds +2, below 2 subtracts -2
+  if (tfMatrix) {
+    const alignBonus = (tfMatrix.alignmentScore - 2) * 2;
+    adjustedConfidence = Math.max(
+      0,
+      Math.min(100, adjustedConfidence + alignBonus),
+    );
+  }
+
   return {
     symbol: asset.symbol,
     name: asset.name,
     price,
     direction,
-    confidence: timeframeScores.total,
+    confidence: adjustedConfidence,
     scoreBreakdown,
     timeframeScores,
     entryPrice,
@@ -840,6 +1008,18 @@ function buildSignal(
     fakeBreakoutDirection: scores.fakeBreakoutDirection,
     signalTime,
     isLocked,
+    orderBookConfirmed,
+    liquidationConfirmed,
+    orderBookBuyPressure: obBuyPressure,
+    orderBookSellPressure: obSellPressure,
+    liquidationBias: liqBias,
+    smartMoneyConfirmed,
+    whaleActivity: smWhaleActivity,
+    openInterestChange: smOIChange,
+    fundingRate: smFundingRate,
+    timeframeMatrix: tfMatrix ?? null,
+    alignmentAllowed: tfMatrix?.alignmentAllowed ?? false,
+    alignmentScore: tfMatrix?.alignmentScore ?? 0,
   };
 }
 
@@ -858,6 +1038,20 @@ export function useSignalEngine(): {
 } {
   const { marketData, isConnected, isConnecting, lastUpdate } =
     useMarketWebSocket();
+
+  // Real Binance kline streams for BTC
+  const { candles1m, candles3m, lastCandleClose1m, lastCandleClose3m } =
+    useBinanceKlines();
+
+  // Order book and liquidation confirmation
+  const orderBookState = useOrderBook();
+  const liquidationState = useLiquidationData();
+
+  // Smart money flow confirmation
+  const smartMoneyState = useSmartMoneyFlow();
+
+  // Multi-timeframe alignment matrices
+  const tfMatrices = useMultiTimeframe();
 
   // Tick counter to drive re-renders during lock windows (every 2 seconds)
   const [, setTick] = useState(0);
@@ -890,23 +1084,92 @@ export function useSignalEngine(): {
     }
   }, [filteredAssets, lastUpdate]);
 
-  // Compute raw scores using live tick data — recompute on each price update
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional lastUpdate dependency to recompute scores on price updates
-  const rawScores = useMemo(
-    () =>
-      filteredAssets.map((asset) =>
-        computeRawScores(
-          asset,
-          priceHistoryRef.current.get(asset.symbol) ?? [],
-        ),
-      ),
-    [filteredAssets, lastUpdate],
+  // Extract real kline closes and volumes for BTC
+  const btcCloses1m = useMemo(() => candles1m.map((c) => c.close), [candles1m]);
+  const btcCloses3m = useMemo(() => candles3m.map((c) => c.close), [candles3m]);
+  const btcVolumes1m = useMemo(
+    () => candles1m.map((c) => c.volume),
+    [candles1m],
   );
 
+  // Compute raw scores:
+  // - For BTC: recalculate on candle close (1m or 3m) OR on tick (for live entry price)
+  // - For XAU: recalculate on every price tick (synthetic candles)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional multi-dep recompute
+  const rawScores = useMemo(
+    () =>
+      filteredAssets.map((asset) => {
+        if (asset.symbol === "BTC") {
+          // Use real kline data for BTC — pass actual candle closes
+          return computeRawScores(
+            asset,
+            priceHistoryRef.current.get("BTC") ?? [],
+            btcCloses1m.length >= 20 ? btcCloses1m : undefined,
+            btcCloses3m.length >= 10 ? btcCloses3m : undefined,
+            btcVolumes1m.length >= 5 ? btcVolumes1m : undefined,
+          );
+        }
+        // XAU: synthetic candles anchored to live price
+        return computeRawScores(
+          asset,
+          priceHistoryRef.current.get(asset.symbol) ?? [],
+        );
+      }),
+    // Recalculate when: candle closes for BTC, OR price ticks for XAU
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      filteredAssets,
+      lastUpdate,
+      lastCandleClose1m,
+      lastCandleClose3m,
+      btcCloses1m,
+      btcCloses3m,
+      btcVolumes1m,
+    ],
+  );
+
+  // Stable primitive refs for OB/liquidation to avoid creating new objects on every render
+  const obBuyPressureRef = useRef(orderBookState.buyPressure);
+  const obSellPressureRef = useRef(orderBookState.sellPressure);
+  const obIsLoadingRef = useRef(orderBookState.isLoading);
+  const liqBiasRef = useRef(liquidationState.liquidationBias);
+
+  obBuyPressureRef.current = orderBookState.buyPressure;
+  obSellPressureRef.current = orderBookState.sellPressure;
+  obIsLoadingRef.current = orderBookState.isLoading;
+  liqBiasRef.current = liquidationState.liquidationBias;
+
+  // Stable refs for smart money state
+  const smWhaleActivityRef = useRef(smartMoneyState.whaleActivity);
+  const smOIChangeRef = useRef(smartMoneyState.openInterestChange);
+  const smFundingRateRef = useRef(smartMoneyState.fundingRate);
+  const smIsLoadingRef = useRef(smartMoneyState.isLoading);
+
+  smWhaleActivityRef.current = smartMoneyState.whaleActivity;
+  smOIChangeRef.current = smartMoneyState.openInterestChange;
+  smFundingRateRef.current = smartMoneyState.fundingRate;
+  smIsLoadingRef.current = smartMoneyState.isLoading;
+
   // Apply lock logic and build final signals
+  // Entry price always uses current live market price
   const signals = useMemo<EngineSignal[]>(() => {
     const now = Date.now();
     const result: EngineSignal[] = [];
+
+    const obConf: OrderBookConfirmation = {
+      buyPressure: obBuyPressureRef.current,
+      sellPressure: obSellPressureRef.current,
+      isLoading: obIsLoadingRef.current,
+    };
+    const liqConf: LiquidationConfirmation = {
+      bias: liqBiasRef.current,
+    };
+    const smConf: SmartMoneyConfirmation = {
+      whaleActivity: smWhaleActivityRef.current,
+      openInterestChange: smOIChangeRef.current,
+      fundingRate: smFundingRateRef.current,
+      isLoading: smIsLoadingRef.current,
+    };
 
     filteredAssets.forEach((asset, idx) => {
       const scores = rawScores[idx];
@@ -917,39 +1180,123 @@ export function useSignalEngine(): {
       const existingLock = lockMap.get(sym);
       const total = scores.timeframeScores.total;
 
-      // Determine raw direction
+      // Resolve multi-timeframe matrix for this asset
+      const tfMatrix = tfMatrices.find((m) => m.symbol === sym) ?? null;
+
+      // Determine raw direction (before any gating)
       let rawDirection: "STRONG BUY" | "STRONG SELL" | "WAIT";
       if (total > 75) rawDirection = "STRONG BUY";
       else if (total < 25) rawDirection = "STRONG SELL";
       else rawDirection = "WAIT";
 
+      // ── GATE 1: Multi-timeframe alignment (applied FIRST) ────────────────
+      // If 15m + 5m + 3m are not aligned, block signal generation
+      let gatedDirection = rawDirection;
+      if (tfMatrix && !tfMatrix.alignmentAllowed && gatedDirection !== "WAIT") {
+        gatedDirection = "WAIT";
+      }
+
+      // Also: if aligned direction contradicts raw direction, block it
+      if (tfMatrix?.alignmentAllowed && gatedDirection !== "WAIT") {
+        const dominant = tfMatrix.dominantDirection;
+        if (dominant === "BULLISH" && gatedDirection === "STRONG SELL") {
+          gatedDirection = "WAIT";
+        } else if (dominant === "BEARISH" && gatedDirection === "STRONG BUY") {
+          gatedDirection = "WAIT";
+        }
+      }
+
+      // ── GATE 2: Order book confirmation (BTC only) ───────────────────────
+      if (asset.symbol === "BTC" && !obConf.isLoading) {
+        if (gatedDirection === "STRONG BUY" && obConf.buyPressure < 60) {
+          gatedDirection = "WAIT";
+        } else if (
+          gatedDirection === "STRONG SELL" &&
+          obConf.sellPressure < 60
+        ) {
+          gatedDirection = "WAIT";
+        }
+      }
+
+      // ── GATE 3: Smart money confirmation (BTC only) ──────────────────────
+      if (asset.symbol === "BTC" && !smConf.isLoading) {
+        if (
+          gatedDirection === "STRONG BUY" &&
+          smConf.whaleActivity === "DISTRIBUTION"
+        ) {
+          gatedDirection = "WAIT";
+        } else if (
+          gatedDirection === "STRONG SELL" &&
+          smConf.whaleActivity === "ACCUMULATION"
+        ) {
+          gatedDirection = "WAIT";
+        }
+      }
+
+      // ── Blend alignment score into confidence ────────────────────────────
+      // This is for display purposes only; raw scoring unchanged
+      // Applied inside buildSignal when returning the signal object
+
       // Check if existing lock is still valid
       if (existingLock && now - existingLock.lockedAt < LOCK_DURATION_MS) {
         // Lock still active — use it
-        result.push(buildSignal(asset, scores, existingLock, lastUpdate));
+        result.push(
+          buildSignal(
+            asset,
+            scores,
+            existingLock,
+            lastUpdate,
+            obConf,
+            liqConf,
+            smConf,
+            tfMatrix ?? undefined,
+          ),
+        );
       } else {
         // Lock expired or none — check if we should set a new lock
-        if (rawDirection !== "WAIT") {
+        if (gatedDirection !== "WAIT") {
           const newLock: LockEntry = {
-            direction: rawDirection,
-            entryPrice: asset.price,
+            direction: gatedDirection,
+            entryPrice: asset.price, // live market price at signal time
             signalTime: new Date(),
             lockedAt: now,
           };
           lockMap.set(sym, newLock);
-          result.push(buildSignal(asset, scores, newLock, lastUpdate));
+          result.push(
+            buildSignal(
+              asset,
+              scores,
+              newLock,
+              lastUpdate,
+              obConf,
+              liqConf,
+              smConf,
+              tfMatrix ?? undefined,
+            ),
+          );
         } else {
           // WAIT — clear any expired lock
           if (existingLock && now - existingLock.lockedAt >= LOCK_DURATION_MS) {
             lockMap.delete(sym);
           }
-          result.push(buildSignal(asset, scores, undefined, lastUpdate));
+          result.push(
+            buildSignal(
+              asset,
+              scores,
+              undefined,
+              lastUpdate,
+              obConf,
+              liqConf,
+              smConf,
+              tfMatrix ?? undefined,
+            ),
+          );
         }
       }
     });
 
     return result;
-  }, [filteredAssets, rawScores, lastUpdate]);
+  }, [filteredAssets, rawScores, lastUpdate, tfMatrices]);
 
   return { signals, isConnected, isConnecting, lastUpdate };
 }

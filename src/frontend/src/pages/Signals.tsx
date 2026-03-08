@@ -1,5 +1,3 @@
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Activity,
@@ -7,11 +5,16 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   Bell,
+  BookOpen,
   Brain,
   ChevronDown,
   ChevronUp,
   Clock,
+  Flame,
+  Globe,
+  LayersIcon,
   Lock,
+  Minus,
   MinusCircle,
   Shield,
   TrendingDown,
@@ -20,8 +23,36 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
+import { MarketPressureMeter } from "../components/MarketPressureMeter";
+import type { GoldSignal } from "../hooks/useGoldSignalEngine";
+import {
+  getCurrentSession,
+  useGoldSignalEngine,
+} from "../hooks/useGoldSignalEngine";
+import { useLiquidationData } from "../hooks/useLiquidationData";
+import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
+import type { TFDirection, TimeframeMatrix } from "../hooks/useMultiTimeframe";
 import { useNotifications } from "../hooks/useNotifications";
+import { useOrderBook } from "../hooks/useOrderBook";
+import { usePredictionEngine } from "../hooks/usePredictionEngine";
 import { type EngineSignal, useSignalEngine } from "../hooks/useSignalEngine";
+
+// ── Time-based connection status ─────────────────────────────────────────────
+type AssetStatus = "ONLINE" | "CONNECTING" | "OFFLINE";
+
+function getAssetStatus(
+  symbol: string,
+  lastTickTimes: Map<string, number>,
+  isConnecting: boolean,
+): AssetStatus {
+  const lastTick = lastTickTimes.get(symbol);
+  if (!lastTick) return isConnecting ? "CONNECTING" : "OFFLINE";
+  const elapsed = Date.now() - lastTick;
+  if (elapsed <= 10_000) return "ONLINE";
+  if (elapsed >= 30_000) return "OFFLINE";
+  return "CONNECTING";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -115,6 +146,81 @@ const SMC_TAG_CONFIG: Record<
   },
   FVG: { bg: "bg-hold/15", text: "text-hold", border: "border-hold/30" },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Timeframe Alignment Row (for BTC signal cards)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TFPill({
+  label,
+  direction,
+}: {
+  label: string;
+  direction: TFDirection;
+}) {
+  const cls =
+    direction === "BULLISH"
+      ? "bg-bull/15 border-bull/30 text-bull"
+      : direction === "BEARISH"
+        ? "bg-bear/15 border-bear/30 text-bear"
+        : "bg-hold/15 border-hold/30 text-hold";
+
+  const Icon =
+    direction === "BULLISH"
+      ? TrendingUp
+      : direction === "BEARISH"
+        ? TrendingDown
+        : Minus;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border font-bold font-mono ${cls}`}
+    >
+      <Icon className="w-2 h-2" />
+      {label}
+    </span>
+  );
+}
+
+function TimeframeAlignmentRow({
+  matrix,
+}: {
+  matrix: TimeframeMatrix;
+}) {
+  const isAligned = matrix.alignmentAllowed;
+  const alignBadgeCls = isAligned
+    ? matrix.dominantDirection === "BULLISH"
+      ? "bg-bull/15 border-bull/30 text-bull"
+      : "bg-bear/15 border-bear/30 text-bear"
+    : "bg-hold/15 border-hold/30 text-hold";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 py-2 border-t border-border/40">
+      <LayersIcon className="w-3 h-3 text-muted-foreground shrink-0" />
+      <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">
+        MTF Alignment
+      </span>
+      {/* TF pills */}
+      <div className="flex items-center gap-1">
+        <TFPill label="15M" direction={matrix.tf15m.direction} />
+        <TFPill label="5M" direction={matrix.tf5m.direction} />
+        <TFPill label="3M" direction={matrix.tf3m.direction} />
+        <TFPill label="1M" direction={matrix.tf1m.direction} />
+      </div>
+      {/* Score */}
+      <span className="text-[9px] font-mono text-muted-foreground">
+        {matrix.alignmentScore}/4
+      </span>
+      {/* Aligned/Blocked */}
+      <span
+        className={`text-[9px] px-2 py-0.5 rounded-full border font-bold font-mono ${alignBadgeCls}`}
+        data-ocid={`signals.mtf.${matrix.symbol.toLowerCase()}.${isAligned ? "success_state" : "error_state"}`}
+      >
+        {isAligned ? "✓ ALIGNED" : "✗ BLOCKED"}
+      </span>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Score Breakdown Row
@@ -570,6 +676,50 @@ function SignalCard({
           </div>
         </div>
 
+        {/* ── Multi-Timeframe Alignment (BTC only) ──────────────────────── */}
+        {signal.timeframeMatrix && (
+          <TimeframeAlignmentRow matrix={signal.timeframeMatrix} />
+        )}
+
+        {/* ── Order Book & Liquidation Confirmation (BTC only) ──────────── */}
+        {signal.symbol === "BTC" && (
+          <div className="flex flex-wrap gap-2 py-2 border-t border-border/40">
+            <div className="flex items-center gap-1 text-[9px]">
+              <BookOpen className="w-2.5 h-2.5 text-muted-foreground" />
+              <span className="text-muted-foreground">OB Confirmed:</span>
+              <span
+                className={`font-mono font-bold ${signal.orderBookConfirmed ? "text-bull" : "text-muted-foreground/60"}`}
+              >
+                {signal.orderBookConfirmed ? "✓ YES" : "✗ NO"}
+              </span>
+              <span className="text-muted-foreground/40 font-mono text-[8px]">
+                ({signal.orderBookBuyPressure.toFixed(1)}% buy /{" "}
+                {signal.orderBookSellPressure.toFixed(1)}% sell)
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-[9px]">
+              <Flame className="w-2.5 h-2.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Liq Bias:</span>
+              <span
+                className={`font-mono font-bold ${
+                  signal.liquidationBias === "BULLISH"
+                    ? "text-bull"
+                    : signal.liquidationBias === "BEARISH"
+                      ? "text-bear"
+                      : "text-muted-foreground/60"
+                }`}
+              >
+                {signal.liquidationBias}
+              </span>
+              {signal.liquidationConfirmed && (
+                <span className="text-bull font-mono font-bold text-[8px]">
+                  ✓
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Stats Row ──────────────────────────────────────────────────── */}
         <div className="grid grid-cols-4 gap-2 py-2 border-t border-border/40">
           <div className="text-center">
@@ -651,17 +801,532 @@ function SignalCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Session badge for Gold
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SessionBadge({
+  session,
+  active,
+}: {
+  session: string;
+  active: boolean;
+}) {
+  const sessionLabel =
+    session === "LONDON"
+      ? "London"
+      : session === "NEW_YORK"
+        ? "New York"
+        : session === "ASIAN"
+          ? "Asian"
+          : "Off Hours";
+
+  return (
+    <span
+      className={`flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full border font-bold font-mono ${
+        active
+          ? "bg-bull/15 border-bull/30 text-bull"
+          : "bg-hold/15 border-hold/30 text-hold"
+      }`}
+    >
+      <Globe className="w-2.5 h-2.5" />
+      {sessionLabel} SESSION
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session Paused Card (Gold — inactive session)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SessionPausedCard({
+  signal,
+  index,
+}: {
+  signal: GoldSignal;
+  index: number;
+}) {
+  return (
+    <motion.div
+      data-ocid="signals.xau.card"
+      className="trading-card flex flex-col gap-0 overflow-hidden border-hold/30 transition-all duration-300"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+    >
+      <div className="h-0.5 w-full bg-hold" style={{ opacity: 0.5 }} />
+      <div className="p-5 flex flex-col gap-3">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xl font-bold font-mono text-foreground tracking-tight">
+                XAU
+              </span>
+              <span className="text-xs text-muted-foreground">Gold</span>
+              <SessionBadge session={signal.currentSession} active={false} />
+            </div>
+            <div className="text-2xl font-bold font-mono text-hold">
+              {formatPrice(signal.price)}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold signal-hold">
+              <MinusCircle className="w-3.5 h-3.5" />
+              SESSION PAUSED
+            </div>
+          </div>
+        </div>
+
+        {/* Info box */}
+        <div className="bg-hold/10 border border-hold/30 rounded-md p-3">
+          <div className="flex items-start gap-2">
+            <Globe className="w-3.5 h-3.5 text-hold mt-0.5 shrink-0" />
+            <div>
+              <div className="text-xs font-semibold text-hold mb-1">
+                {signal.sessionLabel}
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Gold signals are paused during Asian and off-hours sessions.
+                Active during{" "}
+                <span className="text-foreground font-semibold">
+                  London (07:00–16:00 UTC)
+                </span>{" "}
+                and{" "}
+                <span className="text-foreground font-semibold">
+                  New York (13:00–22:00 UTC)
+                </span>{" "}
+                sessions when volatility is higher.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Session clock */}
+        <div className="flex flex-wrap gap-3 text-[10px]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-bull/10 border border-bull/20">
+            <Globe className="w-2.5 h-2.5 text-bull" />
+            <span className="text-bull font-semibold">London</span>
+            <span className="text-muted-foreground">07:00–16:00 UTC</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-bull/10 border border-bull/20">
+            <Globe className="w-2.5 h-2.5 text-bull" />
+            <span className="text-bull font-semibold">New York</span>
+            <span className="text-muted-foreground">13:00–22:00 UTC</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-hold/10 border border-hold/20">
+            <Globe className="w-2.5 h-2.5 text-hold" />
+            <span className="text-hold font-semibold">Asian</span>
+            <span className="text-muted-foreground">
+              00:00–08:00 UTC (paused)
+            </span>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gold Signal Card (active session)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GoldSignalCard({
+  signal,
+  index,
+}: {
+  signal: GoldSignal;
+  index: number;
+}) {
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+  const dir = DIRECTION_CONFIG[signal.direction];
+  const DirIcon = dir.icon;
+  const risk = RISK_CONFIG[signal.riskLevel];
+  const RiskIcon = risk.icon;
+
+  const rr1 = Math.abs(
+    (signal.tp1 - signal.entryPrice) /
+      (Math.abs(signal.entryPrice - signal.stopLoss) || 1),
+  );
+  const potentialGain = Math.abs(
+    ((signal.tp2 - signal.entryPrice) / signal.entryPrice) * 100,
+  );
+  const maxLoss = Math.abs(
+    ((signal.entryPrice - signal.stopLoss) / signal.entryPrice) * 100,
+  );
+
+  const rsiColor =
+    signal.rsi > 55
+      ? "text-bull"
+      : signal.rsi < 45
+        ? "text-bear"
+        : "text-muted-foreground";
+
+  return (
+    <motion.div
+      data-ocid="signals.xau.card"
+      className={`trading-card flex flex-col gap-0 overflow-hidden hover:${dir.borderCls} transition-all duration-300`}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+    >
+      <div className={`h-0.5 w-full ${dir.barCls}`} style={{ opacity: 0.6 }} />
+
+      <div className="p-5 flex flex-col gap-4">
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-xl font-bold font-mono text-foreground tracking-tight">
+                XAU
+              </span>
+              <span className="text-xs text-muted-foreground">Gold</span>
+              <SessionBadge
+                session={signal.currentSession}
+                active={signal.sessionActive}
+              />
+              {signal.isLocked && signal.signalTime && (
+                <LockCountdown signalTime={signal.signalTime} />
+              )}
+            </div>
+            <div className={`text-2xl font-bold font-mono ${dir.textCls}`}>
+              {formatPrice(signal.price)}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold ${dir.badgeCls}`}
+            >
+              <DirIcon className="w-3.5 h-3.5" />
+              {dir.label}
+            </div>
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Clock className="w-2.5 h-2.5" />
+              {timeSince(signal.lastUpdated)}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Confidence bar ──────────────────────────────────────────────── */}
+        <div>
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+              <Brain className="w-3 h-3" />
+              Institutional Probability
+            </span>
+            <span className={`text-sm font-mono font-bold ${dir.textCls}`}>
+              {signal.confidence}%
+            </span>
+          </div>
+          <div className="h-2 bg-secondary rounded-full overflow-hidden">
+            <motion.div
+              className={`h-full rounded-full ${dir.barCls}`}
+              initial={{ width: 0 }}
+              animate={{ width: `${signal.confidence}%` }}
+              transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+            />
+          </div>
+        </div>
+
+        {/* ── Score Breakdown ──────────────────────────────────────────────── */}
+        <div className="border border-border/60 rounded-md overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 bg-secondary/40 hover:bg-secondary/70 transition-colors"
+            onClick={() => setBreakdownOpen((v) => !v)}
+            data-ocid="signals.xau.panel"
+          >
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Gold Score Breakdown
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono font-bold text-foreground">
+                {signal.confidence}/100
+              </span>
+              {breakdownOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
+            </div>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {breakdownOpen && (
+              <motion.div
+                key="gold-breakdown"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+                className="overflow-hidden"
+              >
+                <div className="px-3 pb-2 divide-y divide-border/40">
+                  <ScoreRow
+                    label="5m Trend (EMA50/200)"
+                    score={signal.trend5mScore}
+                    max={15}
+                    delay={0.04}
+                  />
+                  <ScoreRow
+                    label="1m Momentum (EMA9/20 + Vol)"
+                    score={signal.momentum1mScore}
+                    max={15}
+                    delay={0.08}
+                  />
+                  <ScoreRow
+                    label="3m Candle Confirmation"
+                    score={signal.confirmation3mScore}
+                    max={15}
+                    delay={0.12}
+                  />
+                  <ScoreRow
+                    label="Order Block Proximity"
+                    score={signal.orderBlockScore}
+                    max={15}
+                    delay={0.16}
+                  />
+                  <ScoreRow
+                    label="Liquidity Sweep"
+                    score={signal.liqSweepScore}
+                    max={15}
+                    delay={0.2}
+                  />
+                  <ScoreRow
+                    label="Fake Breakout"
+                    score={signal.fakeBreakoutScore}
+                    max={10}
+                    delay={0.24}
+                  />
+                  <ScoreRow
+                    label="Volume Spike"
+                    score={signal.volumeSpikeScore}
+                    max={10}
+                    delay={0.28}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ── Indicator Snapshot ──────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 py-2 border-t border-border/40">
+          <div className="flex items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">RSI</span>
+            <span className={`font-mono font-bold ${rsiColor}`}>
+              {signal.rsi.toFixed(1)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">EMA9/20</span>
+            <span
+              className={`font-mono font-bold ${signal.ema9 > signal.ema20 ? "text-bull" : "text-bear"}`}
+            >
+              {signal.ema9 > signal.ema20 ? "▲" : "▼"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">EMA50/200</span>
+            <span
+              className={`font-mono font-bold ${signal.ema50 > signal.ema200 ? "text-bull" : "text-bear"}`}
+            >
+              {signal.ema50 > signal.ema200 ? "▲" : "▼"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">MACD</span>
+            <span
+              className={`font-mono font-bold ${signal.macdHistogram > 0 ? "text-bull" : "text-bear"}`}
+            >
+              {signal.macdHistogram > 0 ? "+" : ""}
+              {signal.macdHistogram.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">ATR</span>
+            <span className="font-mono font-bold text-foreground">
+              {formatPrice(signal.atr)}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Price Levels Grid ───────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="bg-secondary/50 rounded-md p-2.5 text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
+              Entry
+            </div>
+            <div className="text-xs font-mono font-bold text-foreground">
+              {formatPrice(signal.entryPrice)}
+            </div>
+          </div>
+          <div className="bg-bear/10 rounded-md p-2.5 text-center border border-bear/20">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
+              Stop Loss
+            </div>
+            <div className="text-xs font-mono font-bold text-bear">
+              {formatPrice(signal.stopLoss)}
+            </div>
+          </div>
+          <div className="bg-bull/8 rounded-md p-2.5 text-center border border-bull/15">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
+              TP 1
+            </div>
+            <div className="text-xs font-mono font-bold text-bull">
+              {formatPrice(signal.tp1)}
+            </div>
+          </div>
+          <div className="bg-bull/12 rounded-md p-2.5 text-center border border-bull/25">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">
+              TP 2
+            </div>
+            <div className="text-xs font-mono font-bold text-bull">
+              {formatPrice(signal.tp2)}
+            </div>
+          </div>
+        </div>
+
+        {/* ── SMC Tags ───────────────────────────────────────────────────── */}
+        <div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Zap className="w-2.5 h-2.5" />
+            Active SMC Patterns
+          </div>
+          {signal.smcTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {signal.smcTags.map((tag) => {
+                const cfg = SMC_TAG_CONFIG[tag] ?? {
+                  bg: "bg-secondary",
+                  text: "text-foreground",
+                  border: "border-border",
+                };
+                return (
+                  <span
+                    key={tag}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border font-mono font-bold ${cfg.bg} ${cfg.text} ${cfg.border}`}
+                  >
+                    {tag}
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="text-[11px] text-muted-foreground/60 italic">
+              No active SMC patterns
+            </span>
+          )}
+        </div>
+
+        {/* ── Stats Row ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-4 gap-2 py-2 border-t border-border/40">
+          <div className="text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">
+              R:R (TP1)
+            </div>
+            <div className="text-xs font-mono font-bold text-primary">
+              1:{rr1.toFixed(2)}
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">
+              Gain (TP2)
+            </div>
+            <div className="text-xs font-mono font-bold text-bull">
+              +{potentialGain.toFixed(2)}%
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">
+              Max Loss
+            </div>
+            <div className="text-xs font-mono font-bold text-bear">
+              -{maxLoss.toFixed(2)}%
+            </div>
+          </div>
+          <div className="flex items-center justify-center">
+            <span
+              className={`text-[9px] px-2 py-1 rounded-full border font-bold flex items-center gap-0.5 ${risk.cls}`}
+            >
+              <RiskIcon className="w-2.5 h-2.5" />
+              {risk.label}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Explanation ────────────────────────────────────────────────── */}
+        <div
+          className={`border-l-2 ${dir.textCls.replace("text-", "border-")} pl-3`}
+        >
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            {signal.explanation}
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Summary Bar
 // ─────────────────────────────────────────────────────────────────────────────
 
+function StatusDot({
+  status,
+  label,
+}: {
+  status: AssetStatus;
+  label: string;
+}) {
+  if (status === "ONLINE") {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
+        </span>
+        <span className="text-[9px] font-bold font-mono text-bull tracking-widest">
+          {label} ONLINE
+        </span>
+      </div>
+    );
+  }
+  if (status === "CONNECTING") {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-hold opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-hold" />
+        </span>
+        <span className="text-[9px] font-bold font-mono text-hold tracking-widest">
+          {label} CONNECTING
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bear" />
+      <span className="text-[9px] font-bold font-mono text-bear tracking-widest">
+        {label} OFFLINE
+      </span>
+    </div>
+  );
+}
+
 function SummaryBar({
   signals,
-  isConnected,
+  lastTickTimes,
   isConnecting,
+  orderBookBuyPressure,
+  orderBookSellPressure,
+  orderBookLabel,
 }: {
   signals: EngineSignal[];
-  isConnected: boolean;
+  lastTickTimes: Map<string, number>;
   isConnecting: boolean;
+  orderBookBuyPressure: number;
+  orderBookSellPressure: number;
+  orderBookLabel: string;
 }) {
   const buyCount = signals.filter((s) => s.direction === "STRONG BUY").length;
   const sellCount = signals.filter((s) => s.direction === "STRONG SELL").length;
@@ -676,6 +1341,16 @@ function SummaryBar({
     bias = "BEARISH BIAS";
     biasClass = "text-bear";
   }
+
+  const btcStatus = getAssetStatus("BTC", lastTickTimes, isConnecting);
+  const xauStatus = getAssetStatus("XAU", lastTickTimes, isConnecting);
+
+  const obPressureColor =
+    orderBookLabel === "BULLISH PRESSURE"
+      ? "text-bull"
+      : orderBookLabel === "BEARISH PRESSURE"
+        ? "text-bear"
+        : "text-hold";
 
   return (
     <div
@@ -714,42 +1389,35 @@ function SummaryBar({
         </div>
       </div>
 
+      {/* Order Book Pressure Indicator */}
+      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-secondary/60 border border-border/40">
+        <BookOpen className="w-3 h-3 text-muted-foreground" />
+        <span className="text-[9px] text-muted-foreground font-mono">OB:</span>
+        <span className="text-[9px] font-mono font-bold text-bull">
+          B {orderBookBuyPressure.toFixed(0)}%
+        </span>
+        <span className="text-[8px] text-muted-foreground/40">/</span>
+        <span className="text-[9px] font-mono font-bold text-bear">
+          S {orderBookSellPressure.toFixed(0)}%
+        </span>
+        <span
+          className={`text-[8px] font-mono font-bold ${obPressureColor} ml-1`}
+        >
+          {orderBookLabel === "BULLISH PRESSURE"
+            ? "▲"
+            : orderBookLabel === "BEARISH PRESSURE"
+              ? "▼"
+              : "—"}
+        </span>
+      </div>
+
       {/* Spacer */}
       <div className="flex-1 h-px bg-border hidden sm:block" />
 
-      {/* WS status */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        {isConnected ? (
-          <>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-bull" />
-            </span>
-            <span className="text-[10px] font-bold font-mono text-bull tracking-widest">
-              LIVE
-            </span>
-            <span className="text-[10px] text-muted-foreground font-mono">
-              · Binance Stream
-            </span>
-          </>
-        ) : isConnecting ? (
-          <>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-hold opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-hold" />
-            </span>
-            <span className="text-[10px] font-bold font-mono text-hold tracking-widest">
-              CONNECTING...
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-bear" />
-            <span className="text-[10px] font-bold font-mono text-bear tracking-widest">
-              OFFLINE
-            </span>
-          </>
-        )}
+      {/* Per-asset status — time-based, not WebSocket open/close */}
+      <div className="flex items-center gap-3 shrink-0">
+        <StatusDot status={btcStatus} label="BTC" />
+        <StatusDot status={xauStatus} label="XAU" />
       </div>
     </div>
   );
@@ -830,10 +1498,15 @@ function SkeletonCards() {
 type AssetFilter = "ALL" | "BTC" | "XAU";
 
 export default function Signals() {
-  const { signals, isConnected, isConnecting } = useSignalEngine();
+  const { signals, isConnecting } = useSignalEngine();
+  const { lastTickTimes } = useMarketWebSocket();
   const { permission, isSupported, requestPermission, sendSignalNotification } =
     useNotifications();
+  const orderBook = useOrderBook();
+  const liquidation = useLiquidationData();
+  const goldSignal = useGoldSignalEngine();
 
+  const predictions = usePredictionEngine();
   const [assetFilter, setAssetFilter] = useState<AssetFilter>("ALL");
 
   // Wire up notifications — fire for each STRONG BUY/SELL signal
@@ -847,18 +1520,66 @@ export default function Signals() {
     prevSignalsRef.current = signals;
   }, [signals, sendSignalNotification]);
 
-  const isLoading = signals.length === 0;
+  // Fire notification for gold STRONG BUY/SELL
+  const lastGoldNotifRef = useRef<string>("");
+  useEffect(() => {
+    if (
+      !goldSignal ||
+      goldSignal.direction === "WAIT" ||
+      permission !== "granted"
+    )
+      return;
+    const key = `${goldSignal.direction}-${goldSignal.entryPrice.toFixed(0)}`;
+    if (lastGoldNotifRef.current === key) return;
+    lastGoldNotifRef.current = key;
+    try {
+      const n = new Notification("Alpha Signal AI Alert", {
+        body: `XAU ${goldSignal.direction}\nEntry: $${goldSignal.entryPrice.toFixed(2)}\nStop Loss: $${goldSignal.stopLoss.toFixed(2)}\nTake Profit: $${goldSignal.tp1.toFixed(2)}\nConfidence: ${goldSignal.confidence}%`,
+        icon: "/favicon.ico",
+        tag: "alpha-gold-signal",
+        requireInteraction: false,
+      });
+      setTimeout(() => n.close(), 8000);
+    } catch {
+      /* ignore */
+    }
+  }, [goldSignal, permission]);
 
-  const filteredSignals =
-    assetFilter === "ALL"
-      ? signals
-      : signals.filter(
-          (s) =>
-            s.symbol === assetFilter ||
-            (assetFilter === "XAU" && s.symbol === "GOLD"),
-        );
+  // Fire notification for high-confidence predictions (> 70%)
+  const lastPredictionNotifRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (permission !== "granted") return;
+    for (const pred of predictions) {
+      if (pred.confidence < 70) continue;
+      const key = `${pred.symbol}-${pred.prediction}-${pred.bullishProb}`;
+      if (lastPredictionNotifRef.current.get(pred.symbol) === key) continue;
+      lastPredictionNotifRef.current.set(pred.symbol, key);
+      try {
+        const n = new Notification("Alpha Signal AI — Prediction Alert", {
+          body: `${pred.symbol} ${pred.prediction}\nBullish: ${pred.bullishProb}% | Bearish: ${pred.bearishProb}%\nConfidence: ${pred.confidence}%\n${pred.label}`,
+          icon: "/favicon.ico",
+          tag: `alpha-pred-${pred.symbol}`,
+          requireInteraction: false,
+        });
+        setTimeout(() => n.close(), 8000);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [predictions, permission]);
+
+  // BTC signals only from useSignalEngine (XAU comes from goldSignal)
+  const btcSignals = signals.filter((s) => s.symbol === "BTC");
+  const isLoading = signals.length === 0 && goldSignal === null;
+
+  // Current session for display
+  const currentSession = getCurrentSession();
 
   const showNotificationsBanner = isSupported && permission === "default";
+
+  // Filter: BTC cards + gold card depending on filter
+  const showBtc = assetFilter === "ALL" || assetFilter === "BTC";
+  const showXau = assetFilter === "ALL" || assetFilter === "XAU";
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
@@ -904,16 +1625,19 @@ export default function Signals() {
       {/* Summary bar */}
       {!isLoading && (
         <SummaryBar
-          signals={signals}
-          isConnected={isConnected}
+          signals={btcSignals}
+          lastTickTimes={lastTickTimes}
           isConnecting={isConnecting}
+          orderBookBuyPressure={orderBook.buyPressure}
+          orderBookSellPressure={orderBook.sellPressure}
+          orderBookLabel={orderBook.label}
         />
       )}
 
       {/* Signal cards */}
       {isLoading ? (
         <SkeletonCards />
-      ) : filteredSignals.length > 0 ? (
+      ) : (
         <motion.div
           className="grid grid-cols-1 md:grid-cols-2 gap-4"
           initial="hidden"
@@ -923,28 +1647,44 @@ export default function Signals() {
             visible: { transition: { staggerChildren: 0.1 } },
           }}
         >
-          {filteredSignals.map((signal, i) => (
-            <SignalCard key={signal.symbol} signal={signal} index={i} />
-          ))}
+          {/* BTC signals from main engine */}
+          {showBtc &&
+            btcSignals.map((signal, i) => (
+              <SignalCard key={signal.symbol} signal={signal} index={i} />
+            ))}
+
+          {/* XAU signal from gold engine */}
+          {showXau &&
+            goldSignal &&
+            (goldSignal.sessionActive ? (
+              <GoldSignalCard
+                signal={goldSignal}
+                index={showBtc ? btcSignals.length : 0}
+              />
+            ) : (
+              <SessionPausedCard
+                signal={goldSignal}
+                index={showBtc ? btcSignals.length : 0}
+              />
+            ))}
         </motion.div>
-      ) : (
-        <div
-          data-ocid="signals.empty_state"
-          className="trading-card p-12 text-center"
-        >
-          <Activity className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">
-            {signals.length === 0
-              ? "Waiting for market data…"
-              : `No ${assetFilter} signals available`}
-          </p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            {signals.length === 0
-              ? "Connect to stream live signals"
-              : "Try switching to ALL to see all signals"}
-          </p>
-        </div>
       )}
+
+      {/* Market Pressure Analysis section */}
+      <div className="flex items-center gap-2">
+        <BookOpen className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Market Pressure Analysis
+        </span>
+        <span className="text-[9px] text-muted-foreground font-mono">
+          · BTC Order Book + Liquidations
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MarketPressureMeter state={orderBook} />
+        <LiquidationCascadePanel state={liquidation} />
+      </div>
 
       {/* Notification status indicator */}
       {isSupported && permission === "granted" && (
@@ -967,25 +1707,36 @@ export default function Signals() {
               Institutional Signal Engine — Multi-Timeframe Analysis
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Signals are generated for{" "}
-              <span className="text-foreground font-semibold">BTC and XAU</span>{" "}
-              only, using three synthetic OHLCV series (1m / 3m / 5m
-              timeframes). The{" "}
-              <span className="text-foreground font-semibold">5m series</span>{" "}
-              detects trend direction via EMA50 vs EMA200. The{" "}
-              <span className="text-foreground font-semibold">3m series</span>{" "}
-              confirms candle close direction and RSI. The{" "}
-              <span className="text-foreground font-semibold">1m series</span>{" "}
-              detects momentum via EMA9/20 crossover + volume spike. Order
-              blocks, liquidity sweeps, and fake breakouts are detected from the
-              5m structure. A{" "}
+              Signals for{" "}
+              <span className="text-foreground font-semibold">BTC</span> use
+              real Binance klines (1m/3m/5m) + live tick analysis. BTC{" "}
               <span className="text-bull font-semibold">STRONG BUY</span>{" "}
-              requires score &gt;75 and a{" "}
-              <span className="text-bear font-semibold">STRONG SELL</span>{" "}
-              requires &lt;25. Signals lock for{" "}
+              requires score &gt;75{" "}
+              <span className="text-primary font-semibold">
+                AND order book buy pressure &gt;60%
+              </span>
+              . <span className="text-bear font-semibold">STRONG SELL</span>{" "}
+              requires sell pressure &gt;60%. Liquidation cascade data provides
+              additional confirmation. Signals for{" "}
+              <span className="text-foreground font-semibold">XAU (Gold)</span>{" "}
+              use a specialized engine active only during{" "}
+              <span className="text-foreground font-semibold">
+                London (07:00–16:00 UTC)
+              </span>{" "}
+              and{" "}
+              <span className="text-foreground font-semibold">
+                New York (13:00–22:00 UTC)
+              </span>{" "}
+              sessions — no crypto order book or liquidation data used for Gold.
+              Current session:{" "}
+              <span
+                className={`font-semibold ${currentSession.isActive ? "text-bull" : "text-hold"}`}
+              >
+                {currentSession.label}
+              </span>
+              . All signals lock for{" "}
               <span className="text-hold font-semibold">3 minutes</span> with a
-              fixed entry price to prevent rapid flipping. Push notifications
-              fire immediately on new actionable signals.
+              fixed entry price.
             </p>
           </div>
         </div>

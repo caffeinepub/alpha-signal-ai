@@ -1,12 +1,205 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, DollarSign, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Brain,
+  DollarSign,
+  LayersIcon,
+  LayoutDashboard,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
+import { motion } from "motion/react";
+import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
+import { MarketPressureMeter } from "../components/MarketPressureMeter";
+import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
+import { TrendMatrixPanel } from "../components/TrendMatrixPanel";
+import { useLiquidationData } from "../hooks/useLiquidationData";
 import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
+import { useOrderBook } from "../hooks/useOrderBook";
+import type { AssetPrediction } from "../hooks/usePredictionEngine";
+import { usePredictionEngine } from "../hooks/usePredictionEngine";
 import {
   useAISignals,
   useMarketSentiment,
   useTopGainers,
   useTopLosers,
 } from "../hooks/useQueries";
+import { useSmartMoneyFlow } from "../hooks/useSmartMoneyFlow";
+
+// ─── Connection status logic ─────────────────────────────────────────────────
+// ONLINE  : tick received within last 10 seconds
+// CONNECTING: no tick yet but WebSocket is connecting
+// OFFLINE : no tick for more than 30 seconds
+
+type AssetStatus = "ONLINE" | "CONNECTING" | "OFFLINE";
+
+function getAssetStatus(
+  symbol: string,
+  lastTickTimes: Map<string, number>,
+  isConnecting: boolean,
+): AssetStatus {
+  const lastTick = lastTickTimes.get(symbol);
+  if (!lastTick) {
+    return isConnecting ? "CONNECTING" : "OFFLINE";
+  }
+  const elapsed = Date.now() - lastTick;
+  if (elapsed <= 10_000) return "ONLINE";
+  if (elapsed >= 30_000) return "OFFLINE";
+  return "CONNECTING"; // between 10s and 30s — amber
+}
+
+function AssetStatusBadge({
+  symbol,
+  status,
+}: {
+  symbol: string;
+  status: AssetStatus;
+}) {
+  if (status === "ONLINE") {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
+        </span>
+        <span className="text-[9px] font-bold font-mono text-bull tracking-widest">
+          {symbol} ONLINE
+        </span>
+      </div>
+    );
+  }
+  if (status === "CONNECTING") {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-hold opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-hold" />
+        </span>
+        <span className="text-[9px] font-bold font-mono text-hold tracking-widest">
+          {symbol} CONNECTING
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bear" />
+      <span className="text-[9px] font-bold font-mono text-bear tracking-widest">
+        {symbol} OFFLINE
+      </span>
+    </div>
+  );
+}
+
+// ─── Prediction Meter ─────────────────────────────────────────────────────────
+
+function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
+  const isBullish = prediction.prediction === "BULLISH";
+  const isBearish = prediction.prediction === "BEARISH";
+
+  const dirColor = isBullish
+    ? "text-bull"
+    : isBearish
+      ? "text-bear"
+      : "text-hold";
+  const dirBg = isBullish
+    ? "bg-bull/10 border-bull/30"
+    : isBearish
+      ? "bg-bear/10 border-bear/30"
+      : "bg-hold/10 border-hold/30";
+  const barBull = "bg-bull";
+  const barBear = "bg-bear";
+
+  const signalColor =
+    prediction.signalStrength === "STRONG BUY"
+      ? "signal-buy"
+      : prediction.signalStrength === "STRONG SELL"
+        ? "signal-sell"
+        : "signal-hold";
+
+  return (
+    <div className="trading-card p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Brain className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-semibold text-muted-foreground">
+            AI Prediction — {prediction.symbol}
+          </span>
+        </div>
+        <span
+          className={`text-[9px] font-bold px-2 py-0.5 rounded-full border font-mono ${signalColor}`}
+        >
+          {prediction.signalStrength}
+        </span>
+      </div>
+
+      {/* Prediction label */}
+      <div className={`rounded-md px-3 py-2 mb-3 border text-center ${dirBg}`}>
+        <div className={`text-sm font-bold font-mono ${dirColor}`}>
+          {prediction.prediction}
+        </div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">
+          {prediction.label}
+        </div>
+      </div>
+
+      {/* Bullish bar */}
+      <div className="mb-2">
+        <div className="flex justify-between text-[10px] mb-1">
+          <span className="text-bull font-semibold">Bullish</span>
+          <span className="font-mono font-bold text-bull">
+            {prediction.bullishProb}%
+          </span>
+        </div>
+        <div className="h-2 bg-secondary rounded-full overflow-hidden">
+          <motion.div
+            className={`h-full rounded-full ${barBull}`}
+            initial={{ width: 0 }}
+            animate={{ width: `${prediction.bullishProb}%` }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+          />
+        </div>
+      </div>
+
+      {/* Bearish bar */}
+      <div className="mb-3">
+        <div className="flex justify-between text-[10px] mb-1">
+          <span className="text-bear font-semibold">Bearish</span>
+          <span className="font-mono font-bold text-bear">
+            {prediction.bearishProb}%
+          </span>
+        </div>
+        <div className="h-2 bg-secondary rounded-full overflow-hidden">
+          <motion.div
+            className={`h-full rounded-full ${barBear}`}
+            initial={{ width: 0 }}
+            animate={{ width: `${prediction.bearishProb}%` }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+          />
+        </div>
+      </div>
+
+      {/* Confidence */}
+      <div className="flex items-center justify-between text-[10px] pt-2 border-t border-border/40">
+        <span className="text-muted-foreground flex items-center gap-1">
+          <Zap className="w-2.5 h-2.5" />
+          Confidence Level
+        </span>
+        <span
+          className={`font-mono font-bold ${prediction.confidence >= 70 ? "text-bull" : prediction.confidence >= 40 ? "text-hold" : "text-muted-foreground"}`}
+        >
+          {prediction.confidence}%
+          {prediction.confidence >= 70 && (
+            <span className="ml-1 text-[8px] text-bull/70">HIGH</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function PriceCard({
   symbol,
@@ -436,61 +629,48 @@ function GainersLosersTable({
 }
 
 export default function Dashboard() {
-  const { marketData, isConnected, isConnecting } = useMarketWebSocket();
+  const { marketData, isConnecting, lastTickTimes } = useMarketWebSocket();
   const marketLoading = marketData.length === 0;
   const { data: aiSignals, isLoading: signalsLoading } = useAISignals();
   const { data: sentiment, isLoading: sentimentLoading } = useMarketSentiment();
   const { data: gainers, isLoading: gainersLoading } = useTopGainers();
   const { data: losers, isLoading: losersLoading } = useTopLosers();
+  const predictions = usePredictionEngine();
+  const orderBook = useOrderBook();
+  const liquidation = useLiquidationData();
+  const smartMoney = useSmartMoneyFlow();
 
   const btcSignal = aiSignals?.find((s) => s.symbol === "BTC");
+  const btcPrediction = predictions.find((p) => p.symbol === "BTC");
+  const xauPrediction = predictions.find((p) => p.symbol === "XAU");
+
+  // Per-asset connection status
+  const btcStatus = getAssetStatus("BTC", lastTickTimes, isConnecting);
+  const ethStatus = getAssetStatus("ETH", lastTickTimes, isConnecting);
+  const xauStatus = getAssetStatus("XAU", lastTickTimes, isConnecting);
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
       {/* Market Overview Header */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Activity className="w-4 h-4 text-primary" />
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
           Market Overview
         </span>
-        <div className="flex-1 h-px bg-border" />
-        {/* Live indicator */}
+        <div className="flex-1 h-px bg-border hidden sm:block" />
+        {/* Per-asset live status badges */}
         <div
-          className="flex items-center gap-1.5 shrink-0"
+          className="flex items-center gap-3 shrink-0 flex-wrap"
           data-ocid="market.panel"
         >
-          {isConnected ? (
-            <>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-bull" />
-              </span>
-              <span className="text-[10px] font-bold font-mono text-bull tracking-widest">
-                LIVE
-              </span>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                · Live Feed
-              </span>
-            </>
-          ) : isConnecting ? (
-            <>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-hold opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-hold" />
-              </span>
-              <span className="text-[10px] font-bold font-mono text-hold tracking-widest">
-                CONNECTING...
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="relative flex h-2 w-2">
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-bear" />
-              </span>
-              <span className="text-[10px] font-bold font-mono text-bear tracking-widest">
-                OFFLINE
-              </span>
-            </>
+          <AssetStatusBadge symbol="BTC" status={btcStatus} />
+          <AssetStatusBadge symbol="ETH" status={ethStatus} />
+          <AssetStatusBadge symbol="XAU" status={xauStatus} />
+          {/* Overall stream label */}
+          {btcStatus === "ONLINE" && (
+            <span className="text-[9px] text-muted-foreground font-mono">
+              · Binance Stream
+            </span>
           )}
         </div>
       </div>
@@ -549,6 +729,73 @@ export default function Dashboard() {
             label={sentiment.fearGreedLabel}
           />
         ) : null}
+      </div>
+
+      {/* AI Prediction Meters */}
+      {(btcPrediction || xauPrediction) && (
+        <>
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              AI Market Prediction
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+              <Zap className="w-2.5 h-2.5" />
+              LIVE
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {btcPrediction && <PredictionMeter prediction={btcPrediction} />}
+            {xauPrediction && <PredictionMeter prediction={xauPrediction} />}
+          </div>
+        </>
+      )}
+
+      {/* Multi-Timeframe Analysis */}
+      <div className="flex items-center gap-2">
+        <LayersIcon className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Multi-Timeframe Analysis
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+          <Zap className="w-2.5 h-2.5" />
+          LIVE
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <TrendMatrixPanel />
+
+      {/* Smart Money Flow */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <BarChart3 className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Smart Money Flow
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+          <Zap className="w-2.5 h-2.5" />
+          BINANCE FUTURES
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <SmartMoneyPanel state={smartMoney} />
+
+      {/* Market Pressure Analysis */}
+      <div className="flex items-center gap-2">
+        <LayoutDashboard className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Market Pressure Analysis
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-bear px-2 py-0.5 rounded-full bg-bear/10 border border-bear/20">
+          <Activity className="w-2.5 h-2.5" />
+          BTC
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MarketPressureMeter state={orderBook} />
+        <LiquidationCascadePanel state={liquidation} />
       </div>
 
       {/* Gainers / Losers */}
