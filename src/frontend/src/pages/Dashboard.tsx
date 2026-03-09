@@ -56,10 +56,12 @@ function AssetStatusBadge({
   symbol,
   status,
   marketClosed = false,
+  liveLabel,
 }: {
   symbol: string;
   status: AssetStatus;
   marketClosed?: boolean;
+  liveLabel?: string;
 }) {
   if (marketClosed) {
     return (
@@ -72,6 +74,7 @@ function AssetStatusBadge({
     );
   }
   if (status === "ONLINE") {
+    const label = liveLabel ?? `${symbol} LIVE`;
     return (
       <div className="flex items-center gap-1">
         <span className="relative flex h-1.5 w-1.5">
@@ -79,7 +82,7 @@ function AssetStatusBadge({
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
         </span>
         <span className="text-[9px] font-bold font-mono text-bull tracking-widest">
-          {symbol} ONLINE
+          {label}
         </span>
       </div>
     );
@@ -678,12 +681,21 @@ export default function Dashboard() {
           className="flex items-center gap-3 shrink-0 flex-wrap"
           data-ocid="market.panel"
         >
-          <AssetStatusBadge symbol="BTC" status={btcStatus} />
-          <AssetStatusBadge symbol="ETH" status={ethStatus} />
+          <AssetStatusBadge
+            symbol="BTC"
+            status={btcStatus}
+            liveLabel="BTC LIVE"
+          />
+          <AssetStatusBadge
+            symbol="ETH"
+            status={ethStatus}
+            liveLabel="ETH LIVE"
+          />
           <AssetStatusBadge
             symbol="XAU"
             status={xauStatus}
             marketClosed={xauMarketClosed}
+            liveLabel="XAU LIVE"
           />
           {/* Overall stream label */}
           {btcStatus === "ONLINE" && (
