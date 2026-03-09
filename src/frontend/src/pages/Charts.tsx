@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { SignalChartOverlay } from "../components/SignalChartOverlay";
 import type { EngineSignal } from "../hooks/useSignalEngine";
 import { useSignalEngine } from "../hooks/useSignalEngine";
 
@@ -676,6 +677,9 @@ export default function Charts() {
       <div className="trading-card overflow-hidden p-0">
         <TradingViewWidget symbol={tvSymbol} interval={tvInterval} />
       </div>
+
+      {/* ── AI Signal Chart Overlay ───────────────────────────────────────── */}
+      <SignalChartOverlay asset={selectedAsset} />
 
       {/* ── AI Signal Panel ───────────────────────────────────────────────── */}
       <AnimatePresence mode="wait">

@@ -25,6 +25,29 @@ interface BinanceStreamMessage {
   data: BinanceTicker;
 }
 
+// ─── Twelve Data WebSocket (XAU/USD) ─────────────────────────────────────────
+const TWELVE_DATA_WS_URL =
+  "wss://ws.twelvedata.com/v1/quotes/price?apikey=demo";
+const XAU_SYMBOL = "XAU/USD";
+// If no price tick arrives within 60s of subscribing, treat as market closed
+const XAU_MARKET_CLOSED_TIMEOUT_MS = 60_000;
+// Valid gold price range (USD per troy ounce)
+const XAU_MIN_PRICE = 1000;
+const XAU_MAX_PRICE = 10000;
+
+interface TwelveDataPriceMessage {
+  event: string;
+  symbol?: string;
+  price?: string;
+  timestamp?: number;
+  currency_base?: string;
+  currency_quote?: string;
+  exchange?: string;
+  type?: string;
+  day_volume?: number | null;
+  status?: string;
+}
+
 export interface MarketWebSocketState {
   marketData: MarketAsset[];
   isConnected: boolean;
@@ -32,72 +55,12 @@ export interface MarketWebSocketState {
   lastUpdate: Date | null;
   /** Timestamp (Date.now()) of last received price tick per symbol */
   lastTickTimes: Map<string, number>;
+  /** True when XAU WebSocket is connected but no tick received within 60s — market closed */
+  xauMarketClosed: boolean;
 }
 
 const MAX_RECONNECT_DELAY = 30000;
 const BASE_RECONNECT_DELAY = 1000;
-
-// ─── Gold REST sources (tried in order) ──────────────────────────────────────
-// We fetch from multiple free endpoints and use the first that succeeds.
-// Between fetches we apply a small random walk to simulate smooth ticking.
-
-const XAU_FETCH_INTERVAL_MS = 8000; // fetch real price every 8 seconds
-const XAU_TICK_INTERVAL_MS = 1500; // simulate tick every 1.5s between fetches
-
-async function fetchGoldPrice(): Promise<number | null> {
-  // Source 1: Metals.live (free, no key)
-  try {
-    const res = await fetch("https://metals.live/api/spot", {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) {
-      const json = (await res.json()) as Array<{ gold?: number }>;
-      if (Array.isArray(json)) {
-        for (const item of json) {
-          if (typeof item.gold === "number" && item.gold > 100) {
-            return item.gold;
-          }
-        }
-      }
-    }
-  } catch {
-    /* try next */
-  }
-
-  // Source 2: Open Exchange Rates (XAU against USD)
-  try {
-    const res = await fetch("https://open.er-api.com/v6/latest/XAU", {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { rates?: { USD?: number } };
-      if (json?.rates?.USD && json.rates.USD > 0) {
-        // XAU base → USD rate means 1 XAU = rates.USD USD
-        return json.rates.USD;
-      }
-    }
-  } catch {
-    /* try next */
-  }
-
-  // Source 3: Frankfurter (ECB data, XAU available)
-  try {
-    const res = await fetch(
-      "https://api.frankfurter.app/latest?from=XAU&to=USD",
-      { signal: AbortSignal.timeout(5000) },
-    );
-    if (res.ok) {
-      const json = (await res.json()) as { rates?: { USD?: number } };
-      if (json?.rates?.USD && json.rates.USD > 100) {
-        return json.rates.USD;
-      }
-    }
-  } catch {
-    /* try next */
-  }
-
-  return null;
-}
 
 export function useMarketWebSocket(): MarketWebSocketState {
   const { actor, isFetching } = useActor();
@@ -108,9 +71,9 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const [lastTickTimes, setLastTickTimes] = useState<Map<string, number>>(
     new Map(),
   );
+  const [xauMarketClosed, setXauMarketClosed] = useState(false);
 
   // Connection is considered active once Binance is streaming.
-  // Gold runs independently and doesn't gate the "LIVE" status.
   const isConnected = binanceConnected;
 
   // Refs for Binance WebSocket
@@ -118,16 +81,22 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
+  // Refs for Twelve Data WebSocket (XAU)
+  const xauWsRef = useRef<WebSocket | null>(null);
+  const xauReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const xauReconnectAttemptsRef = useRef(0);
+  const xauClosedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const xauSubscribedRef = useRef(false);
+
   const unmountedRef = useRef(false);
   const initializedRef = useRef(false);
 
-  // XAU state refs
+  // XAU running high/low refs
   const xauPriceRef = useRef<number>(0);
-  const xauChange24hRef = useRef<number>(0);
   const xauHigh24hRef = useRef<number>(0);
   const xauLow24hRef = useRef<number>(0);
-  const xauFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const xauTickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ─── One-time backend seed ──────────────────────────────────────────────────
   useEffect(() => {
@@ -136,11 +105,10 @@ export function useMarketWebSocket(): MarketWebSocketState {
     actor.getMarketData().then((data) => {
       if (unmountedRef.current) return;
       setMarketData(data);
-      // Seed XAU refs from backend data
+      // Seed XAU refs from backend data as fallback initial state
       const xau = data.find((a) => a.symbol === "XAU" || a.symbol === "GOLD");
       if (xau) {
         xauPriceRef.current = xau.price;
-        xauChange24hRef.current = xau.change24h;
         xauHigh24hRef.current = xau.high24h;
         xauLow24hRef.current = xau.low24h;
       }
@@ -158,6 +126,8 @@ export function useMarketWebSocket(): MarketWebSocketState {
     xauLow24hRef.current = Math.min(xauLow24hRef.current, price);
     xauPriceRef.current = price;
 
+    setXauMarketClosed(false);
+
     setMarketData((prev) => {
       const next = [...prev];
       const idx = next.findIndex(
@@ -167,7 +137,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
         symbol: "XAU",
         name: "Gold",
         price,
-        change24h: xauChange24hRef.current,
+        change24h: 0,
         volume: 0,
         high24h: xauHigh24hRef.current,
         low24h: xauLow24hRef.current,
@@ -179,6 +149,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
       }
       return next;
     });
+
     const nowXau = Date.now();
     setLastTickTimes((prev) => {
       const next = new Map(prev);
@@ -188,37 +159,116 @@ export function useMarketWebSocket(): MarketWebSocketState {
     setLastUpdate(new Date());
   }, []);
 
-  // ─── XAU micro-tick simulator (smooth movement between REST fetches) ────────
-  const startXauTicks = useCallback(() => {
-    if (xauTickTimerRef.current) clearInterval(xauTickTimerRef.current);
+  // ─── Twelve Data WebSocket (XAU/USD) ───────────────────────────────────────
+  const connectXau = useCallback(() => {
+    if (unmountedRef.current) return;
 
-    xauTickTimerRef.current = setInterval(() => {
+    // Clean up any existing XAU socket
+    if (xauWsRef.current) {
+      xauWsRef.current.onopen = null;
+      xauWsRef.current.onmessage = null;
+      xauWsRef.current.onclose = null;
+      xauWsRef.current.onerror = null;
+      xauWsRef.current.close();
+      xauWsRef.current = null;
+    }
+    xauSubscribedRef.current = false;
+
+    const ws = new WebSocket(TWELVE_DATA_WS_URL);
+    xauWsRef.current = ws;
+
+    ws.onopen = () => {
       if (unmountedRef.current) return;
-      const base = xauPriceRef.current;
-      if (base <= 0) return;
-      // Small random walk: ±0.03% per tick
-      const noise = (Math.random() - 0.5) * 0.0006 * base;
-      pushXauTick(base + noise);
-    }, XAU_TICK_INTERVAL_MS);
-  }, [pushXauTick]);
+      xauReconnectAttemptsRef.current = 0;
+      xauSubscribedRef.current = true;
 
-  // ─── XAU REST fetch loop ────────────────────────────────────────────────────
-  const scheduleXauFetch = useCallback(() => {
-    if (xauFetchTimerRef.current) clearTimeout(xauFetchTimerRef.current);
+      // Subscribe to XAU/USD
+      ws.send(
+        JSON.stringify({
+          action: "subscribe",
+          params: { symbols: XAU_SYMBOL },
+        }),
+      );
 
-    const run = async () => {
-      if (unmountedRef.current) return;
-      const price = await fetchGoldPrice();
-      if (!unmountedRef.current && price !== null && price > 100) {
-        pushXauTick(price);
+      // Start market-closed detection timer: if no tick in 60s after subscribing
+      if (xauClosedTimerRef.current) {
+        clearTimeout(xauClosedTimerRef.current);
       }
-      if (!unmountedRef.current) {
-        xauFetchTimerRef.current = setTimeout(run, XAU_FETCH_INTERVAL_MS);
+      xauClosedTimerRef.current = setTimeout(() => {
+        if (unmountedRef.current) return;
+        // No tick arrived — market is closed
+        setXauMarketClosed(true);
+      }, XAU_MARKET_CLOSED_TIMEOUT_MS);
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      if (unmountedRef.current) return;
+      try {
+        const msg: TwelveDataPriceMessage = JSON.parse(event.data as string);
+
+        // Ignore heartbeats
+        if (msg.event === "heartbeat") return;
+
+        // Handle error/closed status
+        if (
+          msg.event === "subscribe-status" &&
+          msg.status &&
+          msg.status !== "ok"
+        ) {
+          setXauMarketClosed(true);
+          return;
+        }
+
+        // Handle price updates
+        if (
+          msg.event === "price" &&
+          msg.symbol === XAU_SYMBOL &&
+          msg.price != null
+        ) {
+          const price = Number.parseFloat(msg.price);
+
+          // Validate price is in sane range
+          if (
+            !Number.isFinite(price) ||
+            price < XAU_MIN_PRICE ||
+            price > XAU_MAX_PRICE
+          ) {
+            return;
+          }
+
+          // Clear the market-closed timeout since we got a tick
+          if (xauClosedTimerRef.current) {
+            clearTimeout(xauClosedTimerRef.current);
+            xauClosedTimerRef.current = null;
+          }
+
+          pushXauTick(price);
+        }
+      } catch {
+        // Ignore malformed messages
       }
     };
 
-    // First fetch immediately
-    run();
+    ws.onerror = () => {
+      // onclose will fire after onerror — handled there
+    };
+
+    ws.onclose = () => {
+      if (unmountedRef.current) return;
+
+      const attempts = xauReconnectAttemptsRef.current;
+      const delay = Math.min(
+        BASE_RECONNECT_DELAY * 2 ** attempts,
+        MAX_RECONNECT_DELAY,
+      );
+      xauReconnectAttemptsRef.current = attempts + 1;
+
+      xauReconnectTimerRef.current = setTimeout(() => {
+        if (!unmountedRef.current) {
+          connectXau();
+        }
+      }, delay);
+    };
   }, [pushXauTick]);
 
   // ─── Binance WebSocket (BTC + ETH) ─────────────────────────────────────────
@@ -321,12 +371,11 @@ export function useMarketWebSocket(): MarketWebSocketState {
   useEffect(() => {
     unmountedRef.current = false;
 
-    // Start Binance stream
+    // Start Binance stream (BTC + ETH)
     connect();
 
-    // Start XAU REST loop + micro-tick simulator
-    scheduleXauFetch();
-    startXauTicks();
+    // Start Twelve Data stream (XAU/USD)
+    connectXau();
 
     return () => {
       unmountedRef.current = true;
@@ -345,17 +394,32 @@ export function useMarketWebSocket(): MarketWebSocketState {
         wsRef.current = null;
       }
 
-      // Clean up XAU timers
-      if (xauFetchTimerRef.current) {
-        clearTimeout(xauFetchTimerRef.current);
-        xauFetchTimerRef.current = null;
+      // Clean up XAU (Twelve Data)
+      if (xauReconnectTimerRef.current) {
+        clearTimeout(xauReconnectTimerRef.current);
+        xauReconnectTimerRef.current = null;
       }
-      if (xauTickTimerRef.current) {
-        clearInterval(xauTickTimerRef.current);
-        xauTickTimerRef.current = null;
+      if (xauClosedTimerRef.current) {
+        clearTimeout(xauClosedTimerRef.current);
+        xauClosedTimerRef.current = null;
+      }
+      if (xauWsRef.current) {
+        xauWsRef.current.onopen = null;
+        xauWsRef.current.onmessage = null;
+        xauWsRef.current.onclose = null;
+        xauWsRef.current.onerror = null;
+        xauWsRef.current.close();
+        xauWsRef.current = null;
       }
     };
-  }, [connect, scheduleXauFetch, startXauTicks]);
+  }, [connect, connectXau]);
 
-  return { marketData, isConnected, isConnecting, lastUpdate, lastTickTimes };
+  return {
+    marketData,
+    isConnected,
+    isConnecting,
+    lastUpdate,
+    lastTickTimes,
+    xauMarketClosed,
+  };
 }

@@ -8,9 +8,11 @@ import {
   LayoutDashboard,
   TrendingDown,
   TrendingUp,
+  Trophy,
   Zap,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { BacktestPerformancePanel } from "../components/BacktestPerformancePanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
 import { MarketPressureMeter } from "../components/MarketPressureMeter";
 import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
@@ -53,10 +55,22 @@ function getAssetStatus(
 function AssetStatusBadge({
   symbol,
   status,
+  marketClosed = false,
 }: {
   symbol: string;
   status: AssetStatus;
+  marketClosed?: boolean;
 }) {
+  if (marketClosed) {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-hold" />
+        <span className="text-[9px] font-bold font-mono text-hold tracking-widest">
+          {symbol} MARKET CLOSED
+        </span>
+      </div>
+    );
+  }
   if (status === "ONLINE") {
     return (
       <div className="flex items-center gap-1">
@@ -629,7 +643,8 @@ function GainersLosersTable({
 }
 
 export default function Dashboard() {
-  const { marketData, isConnecting, lastTickTimes } = useMarketWebSocket();
+  const { marketData, isConnecting, lastTickTimes, xauMarketClosed } =
+    useMarketWebSocket();
   const marketLoading = marketData.length === 0;
   const { data: aiSignals, isLoading: signalsLoading } = useAISignals();
   const { data: sentiment, isLoading: sentimentLoading } = useMarketSentiment();
@@ -665,11 +680,17 @@ export default function Dashboard() {
         >
           <AssetStatusBadge symbol="BTC" status={btcStatus} />
           <AssetStatusBadge symbol="ETH" status={ethStatus} />
-          <AssetStatusBadge symbol="XAU" status={xauStatus} />
+          <AssetStatusBadge
+            symbol="XAU"
+            status={xauStatus}
+            marketClosed={xauMarketClosed}
+          />
           {/* Overall stream label */}
           {btcStatus === "ONLINE" && (
             <span className="text-[9px] text-muted-foreground font-mono">
-              · Binance Stream
+              {xauStatus === "ONLINE" && !xauMarketClosed
+                ? "· Binance + Twelve Data"
+                : "· Binance Stream"}
             </span>
           )}
         </div>
@@ -751,6 +772,20 @@ export default function Dashboard() {
           </div>
         </>
       )}
+
+      {/* Backtesting Performance */}
+      <div className="flex items-center gap-2">
+        <Trophy className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Strategy Performance
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+          <Zap className="w-2.5 h-2.5" />
+          BACKTESTING
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <BacktestPerformancePanel />
 
       {/* Multi-Timeframe Analysis */}
       <div className="flex items-center gap-2">
