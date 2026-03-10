@@ -2,9 +2,11 @@ import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
   BarChart3,
+  Flame,
   LayoutDashboard,
   LineChart,
   Menu,
+  Radio,
   X,
   Zap,
 } from "lucide-react";
@@ -23,7 +25,18 @@ const navItems = [
     path: "/charts",
     ocid: "nav.charts.link",
   },
-  { icon: Zap, label: "Signals", path: "/signals", ocid: "nav.signals.link" },
+  {
+    icon: Zap,
+    label: "AI Signals",
+    path: "/signals",
+    ocid: "nav.signals.link",
+  },
+  {
+    icon: Flame,
+    label: "Liquidation",
+    path: "/liquidation",
+    ocid: "nav.liquidation.link",
+  },
   {
     icon: BarChart3,
     label: "Performance",
@@ -41,8 +54,9 @@ export default function Sidebar({ currentPath }: SidebarProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
+      {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-border">
-        <div className="flex items-center justify-center w-9 h-9 rounded-md bg-primary/20 border border-primary/40">
+        <div className="flex items-center justify-center w-9 h-9 rounded-md bg-primary/20 border border-primary/40 glow-cyan">
           <Zap className="w-5 h-5 text-primary" fill="currentColor" />
         </div>
         <div>
@@ -62,6 +76,23 @@ export default function Sidebar({ currentPath }: SidebarProps) {
         </button>
       </div>
 
+      {/* Live Status */}
+      <div className="px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="relative flex items-center">
+            <Radio className="w-3.5 h-3.5 text-bull" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-bull rounded-full animate-pulse" />
+          </div>
+          <span className="text-xs font-mono font-semibold text-bull tracking-widest uppercase">
+            LIVE
+          </span>
+          <span className="text-xs text-muted-foreground ml-auto font-mono">
+            {new Date().toLocaleTimeString("en-US", { hour12: false })}
+          </span>
+        </div>
+      </div>
+
+      {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-1">
         {navItems.map((item) => {
           const isActive =
@@ -78,13 +109,13 @@ export default function Sidebar({ currentPath }: SidebarProps) {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group",
                 isActive
-                  ? "bg-primary/15 text-primary border border-primary/30"
+                  ? "bg-primary/15 text-primary border border-primary/30 glow-cyan"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent",
               )}
             >
               <Icon
                 className={cn(
-                  "w-4 h-4 flex-shrink-0",
+                  "w-4 h-4 flex-shrink-0 transition-colors",
                   isActive
                     ? "text-primary"
                     : "text-muted-foreground group-hover:text-foreground",
@@ -99,6 +130,7 @@ export default function Sidebar({ currentPath }: SidebarProps) {
         })}
       </nav>
 
+      {/* Footer */}
       <div className="px-4 py-3 border-t border-border">
         <div className="text-[10px] text-muted-foreground text-center">
           © {new Date().getFullYear()}{" "}
@@ -117,16 +149,17 @@ export default function Sidebar({ currentPath }: SidebarProps) {
 
   return (
     <>
+      {/* Mobile toggle button */}
       <button
         type="button"
         className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-md bg-card border border-border text-foreground"
         onClick={() => setMobileOpen(!mobileOpen)}
         aria-label="Toggle sidebar"
-        data-ocid="nav.sidebar.toggle"
       >
         <Menu className="w-5 h-5" />
       </button>
 
+      {/* Mobile overlay */}
       {mobileOpen && (
         <div
           role="button"
@@ -140,6 +173,7 @@ export default function Sidebar({ currentPath }: SidebarProps) {
         />
       )}
 
+      {/* Sidebar - mobile */}
       <aside
         className={cn(
           "lg:hidden fixed left-0 top-0 z-40 h-full w-60 bg-sidebar border-r border-sidebar-border transition-transform duration-300",
@@ -149,6 +183,7 @@ export default function Sidebar({ currentPath }: SidebarProps) {
         <SidebarContent />
       </aside>
 
+      {/* Sidebar - desktop */}
       <aside className="hidden lg:flex flex-col w-60 h-screen bg-sidebar border-r border-sidebar-border flex-shrink-0">
         <SidebarContent />
       </aside>
