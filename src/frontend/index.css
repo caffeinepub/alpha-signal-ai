@@ -1,102 +1,100 @@
+@font-face {
+  font-family: "Sora";
+  src: url("/assets/fonts/Sora.woff2") format("woff2");
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/assets/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("/assets/fonts/JetBrainsMono[wght].woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Geist Mono";
-  src: url("/assets/fonts/GeistMono[wght].woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Sora";
-  src: url("/assets/fonts/Sora[wght].woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
-
 @layer base {
   :root {
-    --radius: 0.375rem;
-    --background: 0.12 0.02 250;
-    --foreground: 0.92 0.01 250;
-    --card: 0.16 0.025 250;
-    --card-foreground: 0.92 0.01 250;
-    --popover: 0.18 0.025 250;
-    --popover-foreground: 0.92 0.01 250;
-    --primary: 0.70 0.18 220;
-    --primary-foreground: 0.10 0.02 250;
-    --secondary: 0.20 0.025 250;
-    --secondary-foreground: 0.85 0.01 250;
-    --muted: 0.20 0.02 250;
+    --radius: 0.5rem;
+
+    /* Dark trading theme */
+    --background: 0.12 0.005 250;
+    --foreground: 0.93 0.01 240;
+
+    --card: 0.15 0.008 250;
+    --card-foreground: 0.93 0.01 240;
+
+    --popover: 0.15 0.008 250;
+    --popover-foreground: 0.93 0.01 240;
+
+    --primary: 0.75 0.18 160;
+    --primary-foreground: 0.1 0.01 250;
+
+    --secondary: 0.2 0.01 250;
+    --secondary-foreground: 0.8 0.01 240;
+
+    --muted: 0.2 0.01 250;
     --muted-foreground: 0.55 0.02 250;
-    --accent: 0.70 0.18 220;
-    --accent-foreground: 0.10 0.02 250;
-    --destructive: 0.60 0.22 25;
-    --destructive-foreground: 0.97 0.01 250;
-    --border: 0.28 0.03 250;
-    --input: 0.22 0.025 250;
-    --ring: 0.70 0.18 220;
-    --chart-1: 0.65 0.20 145;
-    --chart-2: 0.60 0.22 25;
-    --chart-3: 0.70 0.18 220;
-    --chart-4: 0.75 0.18 80;
-    --chart-5: 0.55 0.15 290;
-    --sidebar: 0.14 0.022 250;
-    --sidebar-foreground: 0.92 0.01 250;
-    --sidebar-primary: 0.70 0.18 220;
-    --sidebar-primary-foreground: 0.10 0.02 250;
-    --sidebar-accent: 0.20 0.025 250;
-    --sidebar-accent-foreground: 0.85 0.01 250;
-    --sidebar-border: 0.25 0.03 250;
-    --sidebar-ring: 0.70 0.18 220;
 
-    /* Trading-specific tokens */
-    --bull: 0.65 0.20 145;
-    --bear: 0.60 0.22 25;
-    --hold: 0.75 0.18 80;
-    --cyan: 0.70 0.18 220;
-    --glow-cyan: oklch(0.70 0.18 220 / 0.3);
-    --glow-green: oklch(0.65 0.20 145 / 0.3);
-    --glow-red: oklch(0.60 0.22 25 / 0.3);
-  }
+    --accent: 0.2 0.01 250;
+    --accent-foreground: 0.93 0.01 240;
 
-  * {
-    @apply border-border;
+    --destructive: 0.65 0.22 25;
+    --destructive-foreground: 0.98 0.01 240;
+
+    --border: 0.22 0.01 250;
+    --input: 0.22 0.01 250;
+    --ring: 0.75 0.18 160;
+
+    /* Trading specific */
+    --bull: 0.72 0.2 155;
+    --bear: 0.62 0.22 25;
+    --hold: 0.78 0.18 85;
+    --cyan: 0.7 0.15 220;
+
+    --chart-1: 0.72 0.2 155;
+    --chart-2: 0.62 0.22 25;
+    --chart-3: 0.78 0.18 85;
+    --chart-4: 0.7 0.15 220;
+    --chart-5: 0.7 0.12 290;
+
+    --sidebar: 0.13 0.007 250;
+    --sidebar-foreground: 0.93 0.01 240;
+    --sidebar-primary: 0.75 0.18 160;
+    --sidebar-primary-foreground: 0.1 0.01 250;
+    --sidebar-accent: 0.19 0.01 250;
+    --sidebar-accent-foreground: 0.93 0.01 240;
+    --sidebar-border: 0.2 0.01 250;
+    --sidebar-ring: 0.75 0.18 160;
   }
 
   html {
     color-scheme: dark;
   }
 
+  * {
+    @apply border-border;
+  }
+
   body {
-    @apply bg-background text-foreground;
-    font-family: "Sora", system-ui, sans-serif;
+    @apply bg-background text-foreground font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  .font-mono {
-    font-family: "JetBrains Mono", "Geist Mono", monospace;
-  }
-
-  /* Custom scrollbar */
   ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: oklch(var(--background));
   }
   ::-webkit-scrollbar-thumb {
     background: oklch(var(--border));
-    border-radius: 2px;
+    border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: oklch(var(--muted-foreground));
@@ -104,51 +102,23 @@
 }
 
 @layer utilities {
-  .glow-cyan {
-    box-shadow: 0 0 12px var(--glow-cyan), 0 0 24px oklch(0.70 0.18 220 / 0.1);
-  }
   .glow-green {
-    box-shadow: 0 0 12px var(--glow-green), 0 0 24px oklch(0.65 0.20 145 / 0.1);
+    box-shadow: 0 0 12px oklch(var(--bull) / 0.25);
   }
   .glow-red {
-    box-shadow: 0 0 12px var(--glow-red), 0 0 24px oklch(0.60 0.22 25 / 0.1);
+    box-shadow: 0 0 12px oklch(var(--bear) / 0.25);
   }
-
-  .trading-card {
-    @apply bg-card border border-border rounded-lg;
-    background: linear-gradient(135deg, oklch(0.17 0.025 250) 0%, oklch(0.15 0.022 250) 100%);
+  .glow-cyan {
+    box-shadow: 0 0 12px oklch(var(--cyan) / 0.25);
   }
-
-  .price-up {
-    color: oklch(var(--bull));
+  .font-price {
+    font-family: "JetBrains Mono", monospace;
   }
-  .price-down {
-    color: oklch(var(--bear));
+  .animate-pulse-green {
+    animation: pulse-green 2s ease-in-out infinite;
   }
-  .price-neutral {
-    color: oklch(var(--hold));
-  }
-
-  .signal-buy {
-    background: oklch(0.65 0.20 145 / 0.15);
-    color: oklch(var(--bull));
-    border-color: oklch(0.65 0.20 145 / 0.4);
-  }
-  .signal-sell {
-    background: oklch(0.60 0.22 25 / 0.15);
-    color: oklch(var(--bear));
-    border-color: oklch(0.60 0.22 25 / 0.4);
-  }
-  .signal-hold {
-    background: oklch(0.75 0.18 80 / 0.15);
-    color: oklch(var(--hold));
-    border-color: oklch(0.75 0.18 80 / 0.4);
-  }
-
-  .grid-pattern {
-    background-image: 
-      linear-gradient(oklch(0.28 0.03 250 / 0.3) 1px, transparent 1px),
-      linear-gradient(90deg, oklch(0.28 0.03 250 / 0.3) 1px, transparent 1px);
-    background-size: 40px 40px;
+  @keyframes pulse-green {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 }
