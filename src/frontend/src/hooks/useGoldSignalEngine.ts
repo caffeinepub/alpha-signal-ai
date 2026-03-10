@@ -20,30 +20,35 @@ export function getCurrentSession(): SessionInfo {
   const isNewYork = utcHour >= 13 && utcHour < 22;
   const isAsian = utcHour >= 0 && utcHour < 8;
 
+  // Session detection is informational only — signals run 24/7
   if (isLondon && isNewYork) {
     return {
       name: "NEW_YORK",
       isActive: true,
-      label: "New York / London Overlap",
+      label: "NY/London Overlap — High Volatility",
     };
   }
   if (isLondon) {
-    return { name: "LONDON", isActive: true, label: "London Session" };
+    return { name: "LONDON", isActive: true, label: "London Session — Active" };
   }
   if (isNewYork) {
-    return { name: "NEW_YORK", isActive: true, label: "New York Session" };
+    return {
+      name: "NEW_YORK",
+      isActive: true,
+      label: "New York Session — Active",
+    };
   }
   if (isAsian) {
     return {
       name: "ASIAN",
-      isActive: false,
-      label: "Asian Session (Paused)",
+      isActive: true,
+      label: "Asian Session — 24/7 Signals",
     };
   }
   return {
     name: "OFF_HOURS",
-    isActive: false,
-    label: "Off Hours (Paused)",
+    isActive: true,
+    label: "Global Session — 24/7 Signals",
   };
 }
 
@@ -650,56 +655,6 @@ export function useGoldSignalEngine(): GoldSignal | null {
 
     const session = getCurrentSession();
     const price = xau.price;
-
-    if (!session.isActive) {
-      // Session paused — return WAIT signal with session info
-      const atr = price * 0.002; // Default ATR for off-session display
-      return {
-        symbol: "XAU",
-        name: "Gold",
-        price,
-        direction: "WAIT",
-        confidence: 0,
-        entryPrice: price,
-        stopLoss: price - atr * 1.5,
-        tp1: price + atr * 2,
-        tp2: price + atr * 3.5,
-        riskLevel: "LOW",
-        explanation: `Gold signals are paused during ${session.label}. Active during London (07:00–16:00 UTC) and New York (13:00–22:00 UTC) sessions only.`,
-        smcTags: [],
-        lastUpdated: lastUpdate,
-        ema9: price,
-        ema20: price,
-        ema50: price,
-        ema200: price,
-        rsi: 50,
-        macdHistogram: 0,
-        atr,
-        bbUpper: price * 1.02,
-        bbLower: price * 0.98,
-        bbMiddle: price,
-        orderBlockLevel: 0,
-        orderBlockDirection: null,
-        orderBlockNear: false,
-        liquiditySweepDetected: false,
-        liquiditySweepDirection: null,
-        fakeBreakoutDetected: false,
-        fakeBreakoutDirection: null,
-        signalTime: null,
-        isLocked: false,
-        currentSession: session.name,
-        sessionActive: false,
-        sessionLabel: session.label,
-        trend5mScore: 0,
-        momentum1mScore: 0,
-        confirmation3mScore: 0,
-        orderBlockScore: 0,
-        liqSweepScore: 0,
-        fakeBreakoutScore: 0,
-        volumeSpikeScore: 0,
-        totalScore: 0,
-      };
-    }
 
     // Active session — compute scores
     const scores = computeGoldScores(price, priceHistoryRef.current);

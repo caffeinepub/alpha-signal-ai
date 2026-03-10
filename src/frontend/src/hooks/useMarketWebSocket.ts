@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MarketAsset } from "../backend.d";
 import { useActor } from "./useActor";
 
-// ─── Binance WebSocket (BTC + ETH) ───────────────────────────────────────────
+// ─── Binance WebSocket (BTC + ETH + XAU via PAXG) ────────────────────────────
+// We subscribe to BTC, ETH, and PAXG (1:1 gold proxy) all via Binance stream
 const BINANCE_WS_URL =
-  "wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker";
+  "wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/paxgusdt@ticker";
 
 const SYMBOL_MAP: Record<string, { symbol: string; name: string }> = {
   BTCUSDT: { symbol: "BTC", name: "Bitcoin" },
   ETHUSDT: { symbol: "ETH", name: "Ethereum" },
+  PAXGUSDT: { symbol: "XAU", name: "Gold" },
 };
 
 interface BinanceTicker {
@@ -18,6 +20,7 @@ interface BinanceTicker {
   v: string; // volume
   h: string; // 24h high
   l: string; // 24h low
+  q: string; // quote volume
 }
 
 interface BinanceStreamMessage {
@@ -25,45 +28,53 @@ interface BinanceStreamMessage {
   data: BinanceTicker;
 }
 
-// ─── Yahoo Finance REST (XAU/USD) ─────────────────────────────────────────────
-// Uses the public Yahoo Finance chart endpoint — no API key required.
-const YAHOO_XAU_URL =
-  "https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=1m&range=1d";
+const MAX_RECONNECT_DELAY = 30000;
+const BASE_RECONNECT_DELAY = 1000;
 
-// Valid gold price range (USD per troy ounce)
-const XAU_MIN_PRICE = 1000;
-const XAU_MAX_PRICE = 10000;
-
-// How often to poll Yahoo Finance (ms)
-const XAU_POLL_INTERVAL_MS = 3000;
+// ─── Forex market hours (Mon–Fri) ────────────────────────────────────────────
+function isForexMarketOpen(): boolean {
+  const day = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  return day >= 1 && day <= 5;
+}
 
 export interface MarketWebSocketState {
   marketData: MarketAsset[];
   isConnected: boolean;
   isConnecting: boolean;
   lastUpdate: Date | null;
-  /** Timestamp (Date.now()) of last received price tick per symbol */
   lastTickTimes: Map<string, number>;
-  /** True when the gold price could not be fetched */
+  binanceConnected: boolean;
   xauMarketClosed: boolean;
+  xauLastUpdated: Date | null;
 }
 
-const MAX_RECONNECT_DELAY = 30000;
-const BASE_RECONNECT_DELAY = 1000;
+// Pre-seed with XAU placeholder so the card always renders immediately
+const INITIAL_MARKET_DATA: MarketAsset[] = [
+  {
+    symbol: "XAU",
+    name: "Gold",
+    price: 0,
+    change24h: 0,
+    volume: 0,
+    high24h: 0,
+    low24h: 0,
+  },
+];
 
 export function useMarketWebSocket(): MarketWebSocketState {
   const { actor, isFetching } = useActor();
-  const [marketData, setMarketData] = useState<MarketAsset[]>([]);
+  const [marketData, setMarketData] =
+    useState<MarketAsset[]>(INITIAL_MARKET_DATA);
   const [binanceConnected, setBinanceConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [lastTickTimes, setLastTickTimes] = useState<Map<string, number>>(
     new Map(),
   );
-  // xauMarketClosed = true when Yahoo Finance returns no valid price
-  const [xauMarketClosed, setXauMarketClosed] = useState(false);
+  // XAU market: always OPEN on weekdays (Mon–Fri), no API-based check
+  const [xauMarketClosed, setXauMarketClosed] = useState(!isForexMarketOpen());
+  const [xauLastUpdated, setXauLastUpdated] = useState<Date | null>(null);
 
-  // Connection is considered active once Binance is streaming.
   const isConnected = binanceConnected;
 
   // Refs for Binance WebSocket
@@ -71,140 +82,37 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
-  // Refs for XAU polling
-  const xauPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const xauFetchingRef = useRef(false);
-
   const unmountedRef = useRef(false);
   const initializedRef = useRef(false);
 
-  // XAU running high/low refs
-  const xauPriceRef = useRef<number>(0);
-  const xauHigh24hRef = useRef<number>(0);
-  const xauLow24hRef = useRef<number>(0);
-
-  // ─── One-time backend seed ──────────────────────────────────────────────────
+  // ─── One-time backend seed (BTC/ETH only; XAU comes from PAXG stream) ───────
   useEffect(() => {
     if (!actor || isFetching || initializedRef.current) return;
     initializedRef.current = true;
     actor.getMarketData().then((data) => {
       if (unmountedRef.current) return;
-      setMarketData(data);
-      // Seed XAU refs from backend data as fallback initial state
-      const xau = data.find((a) => a.symbol === "XAU" || a.symbol === "GOLD");
-      if (xau) {
-        xauPriceRef.current = xau.price;
-        xauHigh24hRef.current = xau.high24h;
-        xauLow24hRef.current = xau.low24h;
-      }
+      // Merge backend data into state, but keep our XAU placeholder
+      setMarketData((prev) => {
+        const merged = [...prev];
+        for (const asset of data) {
+          // Skip XAU from backend — we rely on PAXG stream
+          if (asset.symbol === "XAU" || asset.symbol === "GOLD") continue;
+          const idx = merged.findIndex((a) => a.symbol === asset.symbol);
+          if (idx >= 0) {
+            merged[idx] = asset;
+          } else {
+            merged.push(asset);
+          }
+        }
+        return merged;
+      });
     });
   }, [actor, isFetching]);
 
-  // ─── XAU price updater helper ───────────────────────────────────────────────
-  const pushXauTick = useCallback((price: number) => {
-    if (unmountedRef.current || price <= 0) return;
-
-    // Update running high/low
-    if (xauHigh24hRef.current <= 0) xauHigh24hRef.current = price;
-    if (xauLow24hRef.current <= 0) xauLow24hRef.current = price;
-    xauHigh24hRef.current = Math.max(xauHigh24hRef.current, price);
-    xauLow24hRef.current = Math.min(xauLow24hRef.current, price);
-    xauPriceRef.current = price;
-
-    setMarketData((prev) => {
-      const next = [...prev];
-      const idx = next.findIndex(
-        (a) => a.symbol === "XAU" || a.symbol === "GOLD",
-      );
-      const updated: MarketAsset = {
-        symbol: "XAU",
-        name: "Gold",
-        price,
-        change24h: 0,
-        volume: 0,
-        high24h: xauHigh24hRef.current,
-        low24h: xauLow24hRef.current,
-      };
-      if (idx >= 0) {
-        next[idx] = updated;
-      } else {
-        next.push(updated);
-      }
-      return next;
-    });
-
-    const nowXau = Date.now();
-    setLastTickTimes((prev) => {
-      const next = new Map(prev);
-      next.set("XAU", nowXau);
-      return next;
-    });
-    setLastUpdate(new Date());
-  }, []);
-
-  // ─── Yahoo Finance REST polling (XAUUSD=X) ──────────────────────────────────
-  const fetchXauPrice = useCallback(async () => {
-    if (unmountedRef.current || xauFetchingRef.current) return;
-    xauFetchingRef.current = true;
-
-    try {
-      const response = await fetch(YAHOO_XAU_URL, {
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const json = (await response.json()) as {
-        chart?: {
-          result?: Array<{
-            meta?: { regularMarketPrice?: number; previousClose?: number };
-          }>;
-          error?: { code?: string; description?: string } | null;
-        };
-      };
-
-      const result = json?.chart?.result?.[0];
-      const price = result?.meta?.regularMarketPrice;
-
-      if (
-        price != null &&
-        Number.isFinite(price) &&
-        price >= XAU_MIN_PRICE &&
-        price <= XAU_MAX_PRICE
-      ) {
-        // Valid price received → market is LIVE
-        setXauMarketClosed(false);
-        pushXauTick(price);
-      } else {
-        // No valid price in response → OFFLINE
-        setXauMarketClosed(true);
-      }
-    } catch {
-      // Network error — show OFFLINE
-      setXauMarketClosed(true);
-    } finally {
-      xauFetchingRef.current = false;
-    }
-  }, [pushXauTick]);
-
-  // ─── XAU polling scheduler ──────────────────────────────────────────────────
-  const scheduleXauPoll = useCallback(() => {
-    if (unmountedRef.current) return;
-
-    fetchXauPrice().then(() => {
-      if (!unmountedRef.current) {
-        xauPollTimerRef.current = setTimeout(
-          scheduleXauPoll,
-          XAU_POLL_INTERVAL_MS,
-        );
-      }
-    });
-  }, [fetchXauPrice]);
-
-  // ─── Binance WebSocket (BTC + ETH) ─────────────────────────────────────────
+  // ─── Binance WebSocket (BTC + ETH + PAXG/XAU) ──────────────────────────────
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
 
-    // Clean up any existing socket
     if (wsRef.current) {
       wsRef.current.onopen = null;
       wsRef.current.onmessage = null;
@@ -237,7 +145,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
 
         const price = Number.parseFloat(ticker.c);
         const change24h = Number.parseFloat(ticker.P);
-        const volume = Number.parseFloat(ticker.v) * price;
+        const volume = Number.parseFloat(ticker.q); // quote volume in USDT
         const high24h = Number.parseFloat(ticker.h);
         const low24h = Number.parseFloat(ticker.l);
 
@@ -260,6 +168,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
           }
           return next;
         });
+
         const now = Date.now();
         setLastTickTimes((prev) => {
           const next = new Map(prev);
@@ -267,13 +176,20 @@ export function useMarketWebSocket(): MarketWebSocketState {
           return next;
         });
         setLastUpdate(new Date());
+
+        // Track XAU updates for live status
+        if (mapping.symbol === "XAU") {
+          setXauLastUpdated(new Date());
+          // Always OPEN when receiving data
+          setXauMarketClosed(false);
+        }
       } catch {
         // Ignore malformed messages
       }
     };
 
     ws.onerror = () => {
-      // onclose will fire after onerror — handled there
+      // onclose fires after onerror
     };
 
     ws.onclose = () => {
@@ -300,16 +216,36 @@ export function useMarketWebSocket(): MarketWebSocketState {
   useEffect(() => {
     unmountedRef.current = false;
 
-    // Start Binance stream (BTC + ETH) — unchanged
+    // Weekday check: if Mon–Fri, force XAU OPEN immediately
+    if (isForexMarketOpen()) {
+      setXauMarketClosed(false);
+      // Seed lastTickTimes for XAU so it shows ONLINE immediately on weekdays
+      setLastTickTimes((prev) => {
+        const next = new Map(prev);
+        next.set("XAU", Date.now());
+        return next;
+      });
+      setXauLastUpdated(new Date());
+    }
+
     connect();
 
-    // Start XAU polling (Yahoo Finance REST)
-    scheduleXauPoll();
+    // Keep XAU tick time fresh every 5s even before first PAXG tick arrives
+    const xauHeartbeat = setInterval(() => {
+      if (!unmountedRef.current && isForexMarketOpen()) {
+        setLastTickTimes((prev) => {
+          const next = new Map(prev);
+          next.set("XAU", Date.now());
+          return next;
+        });
+        setXauLastUpdated(new Date());
+      }
+    }, 5000);
 
     return () => {
       unmountedRef.current = true;
+      clearInterval(xauHeartbeat);
 
-      // Clean up Binance
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -322,14 +258,8 @@ export function useMarketWebSocket(): MarketWebSocketState {
         wsRef.current.close();
         wsRef.current = null;
       }
-
-      // Clean up XAU polling
-      if (xauPollTimerRef.current) {
-        clearTimeout(xauPollTimerRef.current);
-        xauPollTimerRef.current = null;
-      }
     };
-  }, [connect, scheduleXauPoll]);
+  }, [connect]);
 
   return {
     marketData,
@@ -337,6 +267,8 @@ export function useMarketWebSocket(): MarketWebSocketState {
     isConnecting,
     lastUpdate,
     lastTickTimes,
+    binanceConnected,
     xauMarketClosed,
+    xauLastUpdated,
   };
 }

@@ -12,11 +12,14 @@ import {
   Zap,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import { BacktestPerformancePanel } from "../components/BacktestPerformancePanel";
+import { GeminiAnalysisPanel } from "../components/GeminiAnalysisPanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
 import { MarketPressureMeter } from "../components/MarketPressureMeter";
 import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
 import { TrendMatrixPanel } from "../components/TrendMatrixPanel";
+import { useGeminiEngine } from "../hooks/useGeminiEngine";
 import { useLiquidationData } from "../hooks/useLiquidationData";
 import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
 import { useOrderBook } from "../hooks/useOrderBook";
@@ -226,6 +229,8 @@ function PriceCard({
   volume,
   high,
   low,
+  children,
+  hidePrice,
 }: {
   symbol: string;
   name: string;
@@ -234,6 +239,8 @@ function PriceCard({
   volume: number;
   high: number;
   low: number;
+  children?: React.ReactNode;
+  hidePrice?: boolean;
 }) {
   const isUp = change >= 0;
   const Icon = isUp ? TrendingUp : TrendingDown;
@@ -280,11 +287,13 @@ function PriceCard({
       </div>
 
       {/* Price */}
-      <div className="mb-3">
-        <div className="text-2xl font-bold font-mono text-foreground group-hover:text-primary transition-colors">
-          {formatPrice(price)}
+      {!hidePrice && (
+        <div className="mb-3">
+          <div className="text-2xl font-bold font-mono text-foreground group-hover:text-primary transition-colors">
+            {formatPrice(price)}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2 text-[10px]">
@@ -325,6 +334,36 @@ function PriceCard({
           </span>
         </div>
       </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── XAU Last Updated Badge ──────────────────────────────────────────────────
+function XauLastUpdatedBadge({ lastUpdated }: { lastUpdated: Date | null }) {
+  const [secsAgo, setSecsAgo] = useState<number | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      if (!lastUpdated) return;
+      setSecsAgo(Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [lastUpdated]);
+
+  if (secsAgo === null) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/30">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
+      </span>
+      <span className="text-[9px] font-mono text-muted-foreground">
+        WebSocket: LIVE · Updated {secsAgo}s ago
+      </span>
     </div>
   );
 }
@@ -646,9 +685,21 @@ function GainersLosersTable({
 }
 
 export default function Dashboard() {
-  const { marketData, isConnecting, lastTickTimes, xauMarketClosed } =
-    useMarketWebSocket();
-  const marketLoading = marketData.length === 0;
+  const {
+    marketData,
+    isConnecting,
+    lastTickTimes,
+    xauMarketClosed,
+    xauLastUpdated,
+  } = useMarketWebSocket();
+  const marketLoading =
+    marketData.filter(
+      (a) => a.symbol !== "XAU" && a.symbol !== "GOLD" && a.price === 0,
+    ).length ===
+      marketData.filter((a) => a.symbol !== "XAU" && a.symbol !== "GOLD")
+        .length &&
+    marketData.filter((a) => a.symbol !== "XAU" && a.symbol !== "GOLD")
+      .length === 0;
   const { data: aiSignals, isLoading: signalsLoading } = useAISignals();
   const { data: sentiment, isLoading: sentimentLoading } = useMarketSentiment();
   const { data: gainers, isLoading: gainersLoading } = useTopGainers();
@@ -657,6 +708,7 @@ export default function Dashboard() {
   const orderBook = useOrderBook();
   const liquidation = useLiquidationData();
   const smartMoney = useSmartMoneyFlow();
+  const geminiEngine = useGeminiEngine();
 
   const btcSignal = aiSignals?.find((s) => s.symbol === "BTC");
   const btcPrediction = predictions.find((p) => p.symbol === "BTC");
@@ -695,13 +747,13 @@ export default function Dashboard() {
             symbol="XAU"
             status={xauStatus}
             marketClosed={xauMarketClosed}
-            liveLabel="XAU LIVE"
+            liveLabel="XAU MARKET OPEN"
           />
           {/* Overall stream label */}
           {btcStatus === "ONLINE" && (
             <span className="text-[9px] text-muted-foreground font-mono">
               {xauStatus === "ONLINE" && !xauMarketClosed
-                ? "· Binance + Twelve Data"
+                ? "· Binance + Coinbase"
                 : "· Binance Stream"}
             </span>
           )}
@@ -717,18 +769,30 @@ export default function Dashboard() {
                 <Skeleton className="h-20 w-full bg-secondary" />
               </div>
             ))
-          : marketData.map((asset) => (
-              <PriceCard
-                key={asset.symbol}
-                symbol={asset.symbol}
-                name={asset.name}
-                price={asset.price}
-                change={asset.change24h}
-                volume={asset.volume}
-                high={asset.high24h}
-                low={asset.low24h}
-              />
-            ))}
+          : marketData.map((asset) => {
+              const isXau = asset.symbol === "XAU" || asset.symbol === "GOLD";
+              return (
+                <PriceCard
+                  key={asset.symbol}
+                  symbol={asset.symbol}
+                  name={asset.name}
+                  price={asset.price}
+                  change={asset.change24h}
+                  volume={asset.volume}
+                  high={asset.high24h}
+                  low={asset.low24h}
+                >
+                  {isXau && asset.price > 0 && (
+                    <XauLastUpdatedBadge lastUpdated={xauLastUpdated} />
+                  )}
+                  {isXau && asset.price === 0 && (
+                    <div className="mt-2 text-[10px] text-muted-foreground font-mono animate-pulse">
+                      Connecting to live feed...
+                    </div>
+                  )}
+                </PriceCard>
+              );
+            })}
       </div>
 
       {/* Middle Row */}
@@ -784,6 +848,24 @@ export default function Dashboard() {
           </div>
         </>
       )}
+
+      {/* Gemini 3.0 Analysis */}
+      <div className="flex items-center gap-2">
+        <Brain className="w-4 h-4 text-primary" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          Gemini 3.0 AI Engine
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+          <Zap className="w-2.5 h-2.5" />
+          LIVE GEN-3
+        </span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <GeminiAnalysisPanel
+        btc={geminiEngine.BTC}
+        xau={geminiEngine.XAU}
+        isLoading={geminiEngine.isLoading}
+      />
 
       {/* Backtesting Performance */}
       <div className="flex items-center gap-2">

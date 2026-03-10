@@ -836,95 +836,6 @@ function SessionBadge({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Session Paused Card (Gold — inactive session)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function SessionPausedCard({
-  signal,
-  index,
-}: {
-  signal: GoldSignal;
-  index: number;
-}) {
-  return (
-    <motion.div
-      data-ocid="signals.xau.card"
-      className="trading-card flex flex-col gap-0 overflow-hidden border-hold/30 transition-all duration-300"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.1 }}
-    >
-      <div className="h-0.5 w-full bg-hold" style={{ opacity: 0.5 }} />
-      <div className="p-5 flex flex-col gap-3">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xl font-bold font-mono text-foreground tracking-tight">
-                XAU
-              </span>
-              <span className="text-xs text-muted-foreground">Gold</span>
-              <SessionBadge session={signal.currentSession} active={false} />
-            </div>
-            <div className="text-2xl font-bold font-mono text-hold">
-              {formatPrice(signal.price)}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold signal-hold">
-              <MinusCircle className="w-3.5 h-3.5" />
-              SESSION PAUSED
-            </div>
-          </div>
-        </div>
-
-        {/* Info box */}
-        <div className="bg-hold/10 border border-hold/30 rounded-md p-3">
-          <div className="flex items-start gap-2">
-            <Globe className="w-3.5 h-3.5 text-hold mt-0.5 shrink-0" />
-            <div>
-              <div className="text-xs font-semibold text-hold mb-1">
-                {signal.sessionLabel}
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Gold signals are paused during Asian and off-hours sessions.
-                Active during{" "}
-                <span className="text-foreground font-semibold">
-                  London (07:00–16:00 UTC)
-                </span>{" "}
-                and{" "}
-                <span className="text-foreground font-semibold">
-                  New York (13:00–22:00 UTC)
-                </span>{" "}
-                sessions when volatility is higher.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Session clock */}
-        <div className="flex flex-wrap gap-3 text-[10px]">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-bull/10 border border-bull/20">
-            <Globe className="w-2.5 h-2.5 text-bull" />
-            <span className="text-bull font-semibold">London</span>
-            <span className="text-muted-foreground">07:00–16:00 UTC</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-bull/10 border border-bull/20">
-            <Globe className="w-2.5 h-2.5 text-bull" />
-            <span className="text-bull font-semibold">New York</span>
-            <span className="text-muted-foreground">13:00–22:00 UTC</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-hold/10 border border-hold/20">
-            <Globe className="w-2.5 h-2.5 text-hold" />
-            <span className="text-hold font-semibold">Asian</span>
-            <span className="text-muted-foreground">
-              00:00–08:00 UTC (paused)
-            </span>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Gold Signal Card (active session)
@@ -1653,20 +1564,13 @@ export default function Signals() {
               <SignalCard key={signal.symbol} signal={signal} index={i} />
             ))}
 
-          {/* XAU signal from gold engine */}
-          {showXau &&
-            goldSignal &&
-            (goldSignal.sessionActive ? (
-              <GoldSignalCard
-                signal={goldSignal}
-                index={showBtc ? btcSignals.length : 0}
-              />
-            ) : (
-              <SessionPausedCard
-                signal={goldSignal}
-                index={showBtc ? btcSignals.length : 0}
-              />
-            ))}
+          {/* XAU signal from gold engine — 24/7, no session pause */}
+          {showXau && goldSignal && (
+            <GoldSignalCard
+              signal={goldSignal}
+              index={showBtc ? btcSignals.length : 0}
+            />
+          )}
         </motion.div>
       )}
 

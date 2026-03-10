@@ -156,41 +156,18 @@ actor {
     userProfiles.add(caller, profile);
   };
 
-  // Public Market Data - No authorization required
-  public query ({ caller }) func getMarketData() : async [MarketAsset] {
-    if (cachedMarketData.timestamp + 300_000_000_000 < Time.now()) {
-      [
-        {
-          symbol = "BTC";
-          name = "Bitcoin";
-          price = 68000;
-          change24h = 2.5;
-          volume = 500_000_000.0;
-          high24h = 69000;
-          low24h = 67000;
-        },
-        {
-          symbol = "ETH";
-          name = "Ethereum";
-          price = 3600;
-          change24h = 1.8;
-          volume = 300_000_000.0;
-          high24h = 3700;
-          low24h = 3500;
-        },
-        {
-          symbol = "XAU";
-          name = "Gold";
-          price = 2350;
-          change24h = 0.7;
-          volume = 100_000_000.0;
-          high24h = 2400;
-          low24h = 2300;
-        },
-      ];
-    } else {
-      cachedMarketData.assets;
+  // Public Market Data - No authorization required. Always returns data.
+  public query func getMarketData() : async [MarketAsset] {
+    // Always return data — never block the frontend
+    if (cachedMarketData.assets.size() > 0) {
+      return cachedMarketData.assets;
     };
+    // Return fallback static data
+    [
+      { symbol = "BTC"; name = "Bitcoin"; price = 68000; change24h = 2.5; volume = 500_000_000.0; high24h = 69000; low24h = 67000 },
+      { symbol = "ETH"; name = "Ethereum"; price = 3600; change24h = 1.8; volume = 300_000_000.0; high24h = 3700; low24h = 3500 },
+      { symbol = "XAU"; name = "Gold"; price = 2350; change24h = 0.7; volume = 100_000_000.0; high24h = 2400; low24h = 2300 },
+    ]
   };
 
   public shared ({ caller }) func refreshMarketData() : async [MarketAsset] {
