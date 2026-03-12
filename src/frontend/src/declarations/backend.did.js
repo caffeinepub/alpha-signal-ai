@@ -23,6 +23,13 @@ export const AISignal = IDL.Record({
   'riskLevel' : IDL.Text,
   'symbol' : IDL.Text,
 });
+export const GeminiAnalysis = IDL.Record({
+  'marketBias' : IDL.Text,
+  'confidence' : IDL.Nat,
+  'strategicInsight' : IDL.Text,
+  'signal' : IDL.Text,
+  'rawText' : IDL.Text,
+});
 export const UserProfile = IDL.Record({
   'name' : IDL.Text,
   'subscriptionTier' : IDL.Text,
@@ -111,6 +118,11 @@ export const TransformationOutput = IDL.Record({
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'analyzeWithGemini' : IDL.Func(
+      [IDL.Text, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64],
+      [GeminiAnalysis],
+      [],
+    ),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
@@ -164,6 +176,13 @@ export const idlFactory = ({ IDL }) => {
     'confidence' : IDL.Nat,
     'riskLevel' : IDL.Text,
     'symbol' : IDL.Text,
+  });
+  const GeminiAnalysis = IDL.Record({
+    'marketBias' : IDL.Text,
+    'confidence' : IDL.Nat,
+    'strategicInsight' : IDL.Text,
+    'signal' : IDL.Text,
+    'rawText' : IDL.Text,
   });
   const UserProfile = IDL.Record({
     'name' : IDL.Text,
@@ -250,6 +269,11 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'analyzeWithGemini' : IDL.Func(
+        [IDL.Text, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64],
+        [GeminiAnalysis],
+        [],
+      ),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),

@@ -113,6 +113,31 @@ actor {
     description : Text;
   };
 
+  // ─── Gemini Analysis Types ─────────────────────────────────────────────────
+
+  public type GeminiAnalysis = {
+    marketBias : Text;
+    confidence : Nat;
+    strategicInsight : Text;
+    signal : Text;
+    rawText : Text;
+  };
+
+  // ─── Research Report Type ──────────────────────────────────────────────────
+
+  public type ResearchReport = {
+    ticker : Text;
+    assetType : Text;
+    executiveSummary : Text;
+    fundamentalHealth : Text;
+    technicalOutlook : Text;
+    priceTargets : Text;
+    riskAssessment : Text;
+    keyCatalysts : Text;
+    overallRating : Text;
+    rawText : Text;
+  };
+
   module TradeRecord {
     public func compare(t1 : TradeRecord, t2 : TradeRecord) : Order.Order {
       Nat.compare(t1.id, t2.id);
@@ -158,11 +183,9 @@ actor {
 
   // Public Market Data - No authorization required. Always returns data.
   public query func getMarketData() : async [MarketAsset] {
-    // Always return data — never block the frontend
     if (cachedMarketData.assets.size() > 0) {
       return cachedMarketData.assets;
     };
-    // Return fallback static data
     [
       { symbol = "BTC"; name = "Bitcoin"; price = 68000; change24h = 2.5; volume = 500_000_000.0; high24h = 69000; low24h = 67000 },
       { symbol = "ETH"; name = "Ethereum"; price = 3600; change24h = 1.8; volume = 300_000_000.0; high24h = 3700; low24h = 3500 },
@@ -171,7 +194,6 @@ actor {
   };
 
   public shared ({ caller }) func refreshMarketData() : async [MarketAsset] {
-    // Authorization check MUST happen first, before any expensive operations
     if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
       Runtime.trap("Unauthorized: Only admins can refresh market data");
     };
@@ -215,7 +237,7 @@ actor {
     0.0;
   };
 
-  // Public Candlestick Data - No authorization required
+  // Public Candlestick Data
   public query ({ caller }) func getCandlestickData(_symbol : Text, _timeframe : Text) : async [Candle] {
     let now = Time.now() / 1000000000;
     let candles = VarArray.repeat<Candle>({
@@ -242,7 +264,6 @@ actor {
     candles.toArray();
   };
 
-  // Premium Feature - Requires user role
   public query ({ caller }) func getAISignals() : async [AISignal] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access AI signals");
@@ -282,21 +303,20 @@ actor {
     ];
   };
 
-  // Premium Feature - Requires user role
   public query ({ caller }) func getLiquidationData(_symbol : Text) : async [LiquidationZone] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access liquidation data");
     };
 
     let basePrice : Float = 68000.0;
+    let arrayLength = 20;
     let zones = VarArray.repeat<LiquidationZone>({
       priceLevel = 0;
       longLiquidations = 0;
       shortLiquidations = 0;
       intensity = 0;
-    }, 20);
+    }, arrayLength);
 
-    let arrayLength = zones.size();
     var zoneIndex = 0;
     while (zoneIndex < arrayLength) {
       let price = basePrice + ((Int.fromNat(zoneIndex) - 10).toFloat() * 100.0);
@@ -312,7 +332,6 @@ actor {
     zones.toArray();
   };
 
-  // Public Market Sentiment - No authorization required
   public query ({ caller }) func getMarketSentiment() : async MarketSentiment {
     {
       fearGreedIndex = 66;
@@ -321,89 +340,32 @@ actor {
     };
   };
 
-  // Public Top Gainers - No authorization required
   public query ({ caller }) func getTopGainers() : async [Gainer] {
     let gainers : [Gainer] = [
-      {
-        symbol = "SOL";
-        name = "Solana";
-        price = 150;
-        changePercent = 8.5;
-      },
-      {
-        symbol = "ADA";
-        name = "Cardano";
-        price = 1.3;
-        changePercent = 7.2;
-      },
-      {
-        symbol = "DOGE";
-        name = "Dogecoin";
-        price = 0.25;
-        changePercent = 6.8;
-      },
-      {
-        symbol = "AVAX";
-        name = "Avalanche";
-        price = 55;
-        changePercent = 6.1;
-      },
-      {
-        symbol = "LINK";
-        name = "Chainlink";
-        price = 30;
-        changePercent = 5.9;
-      },
+      { symbol = "SOL"; name = "Solana"; price = 150; changePercent = 8.5 },
+      { symbol = "ADA"; name = "Cardano"; price = 1.3; changePercent = 7.2 },
+      { symbol = "DOGE"; name = "Dogecoin"; price = 0.25; changePercent = 6.8 },
+      { symbol = "AVAX"; name = "Avalanche"; price = 55; changePercent = 6.1 },
+      { symbol = "LINK"; name = "Chainlink"; price = 30; changePercent = 5.9 },
     ];
-
     gainers.sort();
   };
 
-  // Public Top Losers - No authorization required
   public query ({ caller }) func getTopLosers() : async [Gainer] {
     let losers : [Gainer] = [
-      {
-        symbol = "XRP";
-        name = "Ripple";
-        price = 0.6;
-        changePercent = -4.1;
-      },
-      {
-        symbol = "MATIC";
-        name = "Polygon";
-        price = 1.1;
-        changePercent = -3.8;
-      },
-      {
-        symbol = "UNI";
-        name = "Uniswap";
-        price = 25;
-        changePercent = -3.5;
-      },
-      {
-        symbol = "LTC";
-        name = "Litecoin";
-        price = 180;
-        changePercent = -2.9;
-      },
-      {
-        symbol = "DOT";
-        name = "Polkadot";
-        price = 12;
-        changePercent = -2.7;
-      },
+      { symbol = "XRP"; name = "Ripple"; price = 0.6; changePercent = -4.1 },
+      { symbol = "MATIC"; name = "Polygon"; price = 1.1; changePercent = -3.8 },
+      { symbol = "UNI"; name = "Uniswap"; price = 25; changePercent = -3.5 },
+      { symbol = "LTC"; name = "Litecoin"; price = 180; changePercent = -2.9 },
+      { symbol = "DOT"; name = "Polkadot"; price = 12; changePercent = -2.7 },
     ];
-
     losers.sort();
   };
 
-  // User-specific performance stats - Requires user role
   public query ({ caller }) func getPerformanceStats() : async PerformanceStats {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access performance stats");
     };
-
-    // Return caller's performance stats
     {
       totalTrades = 100;
       winRate = 65.0;
@@ -415,13 +377,11 @@ actor {
     };
   };
 
-  // User-specific trade history - Requires user role
   public query ({ caller }) func getTradeHistory() : async [TradeRecord] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access trade history");
     };
 
-    // Return caller's trade history
     let trades = VarArray.repeat<TradeRecord>({
       id = 0;
       symbol = "BTC";
@@ -452,45 +412,312 @@ actor {
     trades.toArray();
   };
 
-  // Premium Feature - Requires user role
   public query ({ caller }) func getSmcSignals() : async [SmcSignal] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access SMC signals");
     };
 
     [
-      {
-        symbol = "BTC";
-        signalType = "ORDER_BLOCK";
-        direction = "BULLISH";
-        priceLevel = 68000;
-        strength = 80;
-        description = "Strong support zone";
-      },
-      {
-        symbol = "ETH";
-        signalType = "FVG";
-        direction = "BEARISH";
-        priceLevel = 3600;
-        strength = 75;
-        description = "Fair value gap formed";
-      },
-      {
-        symbol = "BTC";
-        signalType = "BOS";
-        direction = "BULLISH";
-        priceLevel = 68500;
-        strength = 85;
-        description = "Break of structure";
-      },
-      {
-        symbol = "ETH";
-        signalType = "CHOCH";
-        direction = "BEARISH";
-        priceLevel = 3550;
-        strength = 70;
-        description = "Change of character";
-      },
+      { symbol = "BTC"; signalType = "ORDER_BLOCK"; direction = "BULLISH"; priceLevel = 68000; strength = 80; description = "Strong support zone" },
+      { symbol = "ETH"; signalType = "FVG"; direction = "BEARISH"; priceLevel = 3600; strength = 75; description = "Fair value gap formed" },
+      { symbol = "BTC"; signalType = "BOS"; direction = "BULLISH"; priceLevel = 68500; strength = 85; description = "Break of structure" },
+      { symbol = "ETH"; signalType = "CHOCH"; direction = "BEARISH"; priceLevel = 3550; strength = 70; description = "Change of character" },
     ];
+  };
+
+  // ─── Text Utilities ────────────────────────────────────────────────────────
+
+  func sliceAfter(text : Text, prefix : Text) : Text {
+    let pSize = prefix.size();
+    let tChars = text.toArray();
+    if (tChars.size() <= pSize) return "";
+    var result = "";
+    var k = pSize;
+    while (k < tChars.size()) {
+      result #= Text.fromChar(tChars[k]);
+      k += 1;
+    };
+    result;
+  };
+
+  func extractGeminiContent(body : Text) : Text {
+    let marker = "\"text\":\"";
+    let mChars = marker.toArray();
+    let bChars = body.toArray();
+    let mSize = mChars.size();
+    let bSize = bChars.size();
+    var i = 0;
+    while (i + mSize <= bSize) {
+      var matched = true;
+      var j = 0;
+      while (j < mSize) {
+        if (bChars[i + j] != mChars[j]) {
+          matched := false;
+          j := mSize;
+        } else {
+          j += 1;
+        };
+      };
+      if (matched) {
+        var result = "";
+        var k = i + mSize;
+        var escaped = false;
+        label readValue while (k < bSize) {
+          let c = bChars[k];
+          if (escaped) {
+            if (Text.fromChar(c) == "n") { result #= "\n" }
+            else if (Text.fromChar(c) == "t") { result #= "\t" }
+            else { result #= Text.fromChar(c) };
+            escaped := false;
+          } else if (Text.fromChar(c) == "\\") {
+            escaped := true;
+          } else if (Text.fromChar(c) == "\"") {
+            break readValue;
+          } else {
+            result #= Text.fromChar(c);
+          };
+          k += 1;
+        };
+        return result;
+      };
+      i += 1;
+    };
+    "";
+  };
+
+  func parseGeminiText(raw : Text) : GeminiAnalysis {
+    var marketBias = "Neutral";
+    var confidence : Nat = 50;
+    var signal = "NEUTRAL";
+    var strategicInsight = "Awaiting real-time Gemini analysis.";
+
+    for (line in raw.split(#char '\n')) {
+      let trimmed = line.trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '\r' }));
+      if (trimmed.startsWith(#text "BIAS:")) {
+        let val = sliceAfter(trimmed, "BIAS:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
+        if (val.size() > 0) marketBias := val;
+      } else if (trimmed.startsWith(#text "CONFIDENCE:")) {
+        let val = sliceAfter(trimmed, "CONFIDENCE:").trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '%' }));
+        switch (Nat.fromText(val)) {
+          case (?n) { confidence := if (n > 100) 100 else n };
+          case null {};
+        };
+      } else if (trimmed.startsWith(#text "SIGNAL:")) {
+        let val = sliceAfter(trimmed, "SIGNAL:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
+        if (val.size() > 0) signal := val;
+      } else if (trimmed.startsWith(#text "INSIGHT:")) {
+        let val = sliceAfter(trimmed, "INSIGHT:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
+        if (val.size() > 0) strategicInsight := val;
+      };
+    };
+
+    { marketBias; confidence; signal; strategicInsight; rawText = raw };
+  };
+
+  // ─── Gemini 2.0 Flash Analysis ────────────────────────────────────────────
+
+  public func analyzeWithGemini(
+    asset : Text,
+    price : Float,
+    high24h : Float,
+    low24h : Float,
+    rsi : Float,
+    volume : Float,
+  ) : async GeminiAnalysis {
+    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
+
+    let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data. Identify Liquidity Sweeps, Order Blocks, and Market Structure. Respond ONLY in this exact 4-line format with no extra text or markdown:\nBIAS: Bullish or Bearish or Neutral\nCONFIDENCE: integer 0-100\nSIGNAL: STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\nINSIGHT: one concise sentence";
+
+    let smc = if (price > high24h * 0.998) { "near_high_liquidity_sweep" }
+              else if (price < low24h * 1.002) { "near_low_liquidity_sweep" }
+              else { "mid_range" };
+    let userMsg = "Analyze this raw market data: Price: " # price.toText()
+      # ", RSI: " # rsi.toText()
+      # ", SMC: " # smc
+      # ", Asset: " # asset
+      # ", 24h High: " # high24h.toText()
+      # ", 24h Low: " # low24h.toText()
+      # ", Volume: " # volume.toText()
+      # ". Provide a 5-minute scalping outlook. Keep it short and technical.";
+
+    let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
+
+    let reqBody = "{\"system_instruction\":{\"parts\":[{\"text\":\"" # sysInstruction # "\"}]},"
+      # "\"safetySettings\":" # safetySettings # ","
+      # "\"contents\":[{\"parts\":[{\"text\":\"" # userMsg # "\"}]}]}";
+
+    let hdrs : [OutCall.Header] = [
+      { name = "Content-Type"; value = "application/json" },
+    ];
+
+    try {
+      let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
+      let content = extractGeminiContent(responseText);
+      if (content.size() == 0) {
+        return {
+          marketBias = "Neutral";
+          confidence = 50;
+          signal = "NEUTRAL";
+          strategicInsight = "Gemini response could not be parsed.";
+          rawText = responseText;
+        };
+      };
+      parseGeminiText(content);
+    } catch (_) {
+      {
+        marketBias = "Neutral";
+        confidence = 50;
+        signal = "NEUTRAL";
+        strategicInsight = "Gemini API temporarily unavailable.";
+        rawText = "";
+      };
+    };
+  };
+
+  // ─── Gemini 1.5 Pro Deep Research ─────────────────────────────────────────
+  //
+  // Uses gemini-1.5-pro for comprehensive multi-section research reports.
+  // Supports stocks (NVDA, AAPL), crypto (BTC, ETH), and forex (XAU/USD).
+  // Fundamental data is AI-estimated from training knowledge with disclaimer.
+
+  func extractSection(text : Text, sectionLabel : Text) : Text {
+    let labelChars = sectionLabel.toArray();
+    let textChars = text.toArray();
+    let lSize = labelChars.size();
+    let tSize = textChars.size();
+    var i = 0;
+    // Find the label in text
+    label searchLabel while (i + lSize <= tSize) {
+      var matched = true;
+      var j = 0;
+      while (j < lSize) {
+        if (textChars[i + j] != labelChars[j]) {
+          matched := false;
+          j := lSize;
+        } else {
+          j += 1;
+        };
+      };
+      if (matched) {
+        // Skip past the label and any colon/newline
+        var k = i + lSize;
+        while (k < tSize and (Text.fromChar(textChars[k]) == ":" or Text.fromChar(textChars[k]) == " " or Text.fromChar(textChars[k]) == "\n" or Text.fromChar(textChars[k]) == "\r")) {
+          k += 1;
+        };
+        // Read until double newline or next ALL-CAPS section header
+        var result = "";
+        var prev = ' ';
+        label readSection while (k < tSize) {
+          let c = textChars[k];
+          let cStr = Text.fromChar(c);
+          // Stop on double newline followed by uppercase word (next section)
+          if (Text.fromChar(prev) == "\n" and cStr == "\n") {
+            // Check if next non-whitespace char starts an uppercase sequence
+            var peek = k + 1;
+            while (peek < tSize and (Text.fromChar(textChars[peek]) == " " or Text.fromChar(textChars[peek]) == "\n" or Text.fromChar(textChars[peek]) == "\r")) {
+              peek += 1;
+            };
+            if (peek < tSize) {
+              let nextC = Text.fromChar(textChars[peek]);
+              if (nextC == "E" or nextC == "F" or nextC == "T" or nextC == "P" or nextC == "R" or nextC == "K" or nextC == "O") {
+                break readSection;
+              };
+            };
+          };
+          result #= cStr;
+          prev := c;
+          k += 1;
+        };
+        return result.trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '\n' or c == '\r' }));
+      };
+      i += 1;
+    };
+    "";
+  };
+
+  func parseResearchReport(raw : Text, ticker : Text, assetType : Text) : ResearchReport {
+    let exec = extractSection(raw, "EXECUTIVE SUMMARY");
+    let fund = extractSection(raw, "FUNDAMENTAL HEALTH");
+    let tech = extractSection(raw, "TECHNICAL OUTLOOK");
+    let price = extractSection(raw, "PRICE TARGETS");
+    let risk = extractSection(raw, "RISK ASSESSMENT");
+    let catalysts = extractSection(raw, "KEY CATALYSTS");
+    let rating = extractSection(raw, "OVERALL RATING");
+
+    {
+      ticker;
+      assetType;
+      executiveSummary = if (exec.size() > 0) exec else "Analysis in progress.";
+      fundamentalHealth = if (fund.size() > 0) fund else "Fundamental data being compiled.";
+      technicalOutlook = if (tech.size() > 0) tech else "Technical analysis in progress.";
+      priceTargets = if (price.size() > 0) price else "Price targets being calculated.";
+      riskAssessment = if (risk.size() > 0) risk else "Risk assessment in progress.";
+      keyCatalysts = if (catalysts.size() > 0) catalysts else "Catalysts being identified.";
+      overallRating = if (rating.size() > 0) rating else "NEUTRAL";
+      rawText = raw;
+    };
+  };
+
+  public func researchWithGemini(
+    ticker : Text,
+    assetType : Text,
+  ) : async ResearchReport {
+    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=" # apiKey;
+
+    let sysInstruction = "You are a senior institutional research analyst at a top-tier investment bank. Produce deep-dive research reports with institutional-grade rigor. Always structure your response using EXACTLY these section headers on their own lines: EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section must have 2-4 sentences of substantive analysis. For PRICE TARGETS include Bear/Base/Bull scenarios with specific numbers. For OVERALL RATING use one of: STRONG BUY / BUY / HOLD / SELL / STRONG SELL followed by a brief rationale. Do not use markdown formatting like ** or ###.";
+
+    let userMsg = "Generate a comprehensive institutional research report for " # ticker
+      # " (" # assetType # "). Base your analysis on your training knowledge up to your knowledge cutoff."
+      # " Include AI-estimated fundamental metrics (P/E, revenue growth, market position for stocks;"
+      # " on-chain metrics, market cap, adoption for crypto; macro drivers for forex/commodities)."
+      # " Provide specific price targets and a clear investment thesis.";
+
+    let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
+
+    let generationConfig = "{\"temperature\":0.3,\"maxOutputTokens\":1500}";
+
+    let reqBody = "{\"system_instruction\":{\"parts\":[{\"text\":\"" # sysInstruction # "\"}]},"
+      # "\"safetySettings\":" # safetySettings # ","
+      # "\"generationConfig\":" # generationConfig # ","
+      # "\"contents\":[{\"parts\":[{\"text\":\"" # userMsg # "\"}]}]}";
+
+    let hdrs : [OutCall.Header] = [
+      { name = "Content-Type"; value = "application/json" },
+    ];
+
+    try {
+      let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
+      let content = extractGeminiContent(responseText);
+      if (content.size() == 0) {
+        return {
+          ticker;
+          assetType;
+          executiveSummary = "Report generation failed. Raw response: " # responseText;
+          fundamentalHealth = "Please retry the analysis.";
+          technicalOutlook = "";
+          priceTargets = "";
+          riskAssessment = "";
+          keyCatalysts = "";
+          overallRating = "NEUTRAL";
+          rawText = responseText;
+        };
+      };
+      parseResearchReport(content, ticker, assetType);
+    } catch (_) {
+      {
+        ticker;
+        assetType;
+        executiveSummary = "Gemini 1.5 Pro API temporarily unavailable. Please retry.";
+        fundamentalHealth = "";
+        technicalOutlook = "";
+        priceTargets = "";
+        riskAssessment = "";
+        keyCatalysts = "";
+        overallRating = "NEUTRAL";
+        rawText = "";
+      };
+    };
   };
 };

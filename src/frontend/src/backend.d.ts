@@ -102,12 +102,20 @@ export interface MarketSentiment {
     fearGreedLabel: string;
     fearGreedIndex: bigint;
 }
+export interface GeminiAnalysis {
+    marketBias: string;
+    confidence: bigint;
+    strategicInsight: string;
+    signal: string;
+    rawText: string;
+}
 export enum UserRole {
     admin = "admin",
     user = "user",
     guest = "guest"
 }
 export interface backendInterface {
+    analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     getAISignals(): Promise<Array<AISignal>>;
     getCallerUserProfile(): Promise<UserProfile | null>;

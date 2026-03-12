@@ -14,12 +14,13 @@ import {
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { BacktestPerformancePanel } from "../components/BacktestPerformancePanel";
+import { CleanSignalCard } from "../components/CleanSignalCard";
 import { GeminiAnalysisPanel } from "../components/GeminiAnalysisPanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
 import { MarketPressureMeter } from "../components/MarketPressureMeter";
+import { ScalperActionCard } from "../components/ScalperActionCard";
 import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
 import { TrendMatrixPanel } from "../components/TrendMatrixPanel";
-import { useGeminiEngine } from "../hooks/useGeminiEngine";
 import { useLiquidationData } from "../hooks/useLiquidationData";
 import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
 import { useOrderBook } from "../hooks/useOrderBook";
@@ -31,6 +32,8 @@ import {
   useTopGainers,
   useTopLosers,
 } from "../hooks/useQueries";
+import { useGeminiEngine } from "../hooks/useRealGeminiEngine";
+import { useScalperEngine } from "../hooks/useScalperEngine";
 import { useSmartMoneyFlow } from "../hooks/useSmartMoneyFlow";
 
 // ─── Connection status logic ─────────────────────────────────────────────────
@@ -719,6 +722,9 @@ export default function Dashboard() {
   const ethStatus = getAssetStatus("ETH", lastTickTimes, isConnecting);
   const xauStatus = getAssetStatus("XAU", lastTickTimes, isConnecting);
 
+  const [scalperMode, setScalperMode] = useState(false);
+  const scalperEngine = useScalperEngine();
+
   return (
     <div className="p-4 lg:p-6 space-y-5">
       {/* Market Overview Header */}
@@ -758,6 +764,21 @@ export default function Dashboard() {
             </span>
           )}
         </div>
+
+        {/* Scalper Mode Toggle */}
+        <button
+          type="button"
+          data-ocid="dashboard.scalper_toggle"
+          onClick={() => setScalperMode((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold font-mono border transition-all duration-200 ${
+            scalperMode
+              ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.2)]"
+              : "bg-white/5 border-white/15 text-zinc-400 hover:border-white/30"
+          }`}
+        >
+          <Zap className="w-3 h-3" />
+          {scalperMode ? "⚡ Scalper View" : "Classic View"}
+        </button>
       </div>
 
       {/* Price Cards */}
@@ -795,46 +816,161 @@ export default function Dashboard() {
             })}
       </div>
 
-      {/* Middle Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* AI Signal Widget */}
-        {signalsLoading ? (
-          <div className="trading-card p-4">
-            <Skeleton className="h-48 w-full bg-secondary" />
-          </div>
-        ) : btcSignal ? (
-          <SignalWidget
-            symbol={btcSignal.symbol}
-            direction={btcSignal.direction}
-            confidence={Number(btcSignal.confidence)}
-            riskLevel={btcSignal.riskLevel}
-            entryPrice={btcSignal.entryPrice}
-            stopLoss={btcSignal.stopLoss}
-            takeProfit={btcSignal.takeProfit}
-            reasoning={btcSignal.reasoning}
-          />
-        ) : null}
-
-        {/* Fear & Greed */}
-        {sentimentLoading ? (
-          <div className="trading-card p-4">
-            <Skeleton className="h-48 w-full bg-secondary" />
-          </div>
-        ) : sentiment ? (
-          <FearGreedGauge
-            value={Number(sentiment.fearGreedIndex)}
-            label={sentiment.fearGreedLabel}
-          />
-        ) : null}
-      </div>
-
-      {/* AI Prediction Meters */}
-      {(btcPrediction || xauPrediction) && (
+      {/* ─── SCALPER MODE ─────────────────────────────────────────────── */}
+      {scalperMode && (
         <>
+          {/* ─── CLEAN SIGNAL CARDS ─── */}
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
+              ⚡ Clean Signal — 5-Minute Scalper
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 px-2 py-0.5 rounded-full bg-zinc-800/60 border border-zinc-700/40">
+              SIMPLIFIED
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CleanSignalCard
+              asset="BTC"
+              signal={scalperEngine.btc}
+              isLoading={!scalperEngine.btc}
+            />
+            <CleanSignalCard
+              asset="XAU"
+              signal={scalperEngine.xau}
+              isLoading={!scalperEngine.xau}
+            />
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* ─── DETAILED SCALPER CARDS ─── */}
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
+              ⚡ BTC &amp; Gold Scalper — Institutional Probability Engine
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+              LIVE
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ScalperActionCard
+              asset="BTC"
+              signal={scalperEngine.btc}
+              isLoading={!scalperEngine.btc}
+            />
+            <ScalperActionCard
+              asset="XAU"
+              signal={scalperEngine.xau}
+              isLoading={!scalperEngine.xau}
+            />
+          </div>
+        </>
+      )}
+
+      {/* ─── CLASSIC MODE ─────────────────────────────────────────────── */}
+      {!scalperMode && (
+        <>
+          {/* Middle Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* AI Signal Widget */}
+            {signalsLoading ? (
+              <div className="trading-card p-4">
+                <Skeleton className="h-48 w-full bg-secondary" />
+              </div>
+            ) : btcSignal ? (
+              <SignalWidget
+                symbol={btcSignal.symbol}
+                direction={btcSignal.direction}
+                confidence={Number(btcSignal.confidence)}
+                riskLevel={btcSignal.riskLevel}
+                entryPrice={btcSignal.entryPrice}
+                stopLoss={btcSignal.stopLoss}
+                takeProfit={btcSignal.takeProfit}
+                reasoning={btcSignal.reasoning}
+              />
+            ) : null}
+
+            {/* Fear & Greed */}
+            {sentimentLoading ? (
+              <div className="trading-card p-4">
+                <Skeleton className="h-48 w-full bg-secondary" />
+              </div>
+            ) : sentiment ? (
+              <FearGreedGauge
+                value={Number(sentiment.fearGreedIndex)}
+                label={sentiment.fearGreedLabel}
+              />
+            ) : null}
+          </div>
+
+          {/* AI Prediction Meters */}
+          {(btcPrediction || xauPrediction) && (
+            <>
+              <div className="flex items-center gap-2">
+                <Brain className="w-4 h-4 text-primary" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  AI Market Prediction
+                </span>
+                <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                  <Zap className="w-2.5 h-2.5" />
+                  LIVE
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {btcPrediction && (
+                  <PredictionMeter prediction={btcPrediction} />
+                )}
+                {xauPrediction && (
+                  <PredictionMeter prediction={xauPrediction} />
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Gemini 3.0 Analysis */}
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-              AI Market Prediction
+              Gemini 3.0 AI Engine
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+              <Zap className="w-2.5 h-2.5" />
+              LIVE GEN-3
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <GeminiAnalysisPanel
+            btc={geminiEngine.BTC}
+            xau={geminiEngine.XAU}
+            isLoading={geminiEngine.isLoading}
+            onRefresh={geminiEngine.triggerAnalysis}
+          />
+
+          {/* Backtesting Performance */}
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Strategy Performance
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+              <Zap className="w-2.5 h-2.5" />
+              BACKTESTING
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <BacktestPerformancePanel />
+
+          {/* Multi-Timeframe Analysis */}
+          <div className="flex items-center gap-2">
+            <LayersIcon className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Multi-Timeframe Analysis
             </span>
             <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
               <Zap className="w-2.5 h-2.5" />
@@ -842,137 +978,88 @@ export default function Dashboard() {
             </span>
             <div className="flex-1 h-px bg-border" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {btcPrediction && <PredictionMeter prediction={btcPrediction} />}
-            {xauPrediction && <PredictionMeter prediction={xauPrediction} />}
+          <TrendMatrixPanel />
+
+          {/* Smart Money Flow */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <BarChart3 className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Smart Money Flow
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+              <Zap className="w-2.5 h-2.5" />
+              BINANCE FUTURES
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <SmartMoneyPanel state={smartMoney} />
+
+          {/* Market Pressure Analysis */}
+          <div className="flex items-center gap-2">
+            <LayoutDashboard className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Market Pressure Analysis
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-bear px-2 py-0.5 rounded-full bg-bear/10 border border-bear/20">
+              <Activity className="w-2.5 h-2.5" />
+              BTC
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <MarketPressureMeter state={orderBook} />
+            <LiquidationCascadePanel state={liquidation} />
+          </div>
+
+          {/* Gainers / Losers */}
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Market Movers
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {gainersLoading ? (
+              <div className="trading-card p-4">
+                <Skeleton className="h-48 w-full bg-secondary" />
+              </div>
+            ) : gainers && gainers.length > 0 ? (
+              <GainersLosersTable
+                title="Top Gainers"
+                items={gainers}
+                isGainer={true}
+              />
+            ) : (
+              <div className="trading-card p-4" data-ocid="gainers.empty_state">
+                <p className="text-muted-foreground text-sm text-center py-4">
+                  No data available
+                </p>
+              </div>
+            )}
+
+            {losersLoading ? (
+              <div className="trading-card p-4">
+                <Skeleton className="h-48 w-full bg-secondary" />
+              </div>
+            ) : losers && losers.length > 0 ? (
+              <GainersLosersTable
+                title="Top Losers"
+                items={losers}
+                isGainer={false}
+              />
+            ) : (
+              <div className="trading-card p-4" data-ocid="losers.empty_state">
+                <p className="text-muted-foreground text-sm text-center py-4">
+                  No data available
+                </p>
+              </div>
+            )}
           </div>
         </>
       )}
-
-      {/* Gemini 3.0 Analysis */}
-      <div className="flex items-center gap-2">
-        <Brain className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Gemini 3.0 AI Engine
-        </span>
-        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-          <Zap className="w-2.5 h-2.5" />
-          LIVE GEN-3
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-      <GeminiAnalysisPanel
-        btc={geminiEngine.BTC}
-        xau={geminiEngine.XAU}
-        isLoading={geminiEngine.isLoading}
-      />
-
-      {/* Backtesting Performance */}
-      <div className="flex items-center gap-2">
-        <Trophy className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Strategy Performance
-        </span>
-        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-          <Zap className="w-2.5 h-2.5" />
-          BACKTESTING
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-      <BacktestPerformancePanel />
-
-      {/* Multi-Timeframe Analysis */}
-      <div className="flex items-center gap-2">
-        <LayersIcon className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Multi-Timeframe Analysis
-        </span>
-        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-          <Zap className="w-2.5 h-2.5" />
-          LIVE
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-      <TrendMatrixPanel />
-
-      {/* Smart Money Flow */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <BarChart3 className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Smart Money Flow
-        </span>
-        <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-          <Zap className="w-2.5 h-2.5" />
-          BINANCE FUTURES
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-      <SmartMoneyPanel state={smartMoney} />
-
-      {/* Market Pressure Analysis */}
-      <div className="flex items-center gap-2">
-        <LayoutDashboard className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Market Pressure Analysis
-        </span>
-        <span className="flex items-center gap-1 text-[10px] font-bold text-bear px-2 py-0.5 rounded-full bg-bear/10 border border-bear/20">
-          <Activity className="w-2.5 h-2.5" />
-          BTC
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <MarketPressureMeter state={orderBook} />
-        <LiquidationCascadePanel state={liquidation} />
-      </div>
-
-      {/* Gainers / Losers */}
-      <div className="flex items-center gap-2">
-        <DollarSign className="w-4 h-4 text-primary" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-          Market Movers
-        </span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {gainersLoading ? (
-          <div className="trading-card p-4">
-            <Skeleton className="h-48 w-full bg-secondary" />
-          </div>
-        ) : gainers && gainers.length > 0 ? (
-          <GainersLosersTable
-            title="Top Gainers"
-            items={gainers}
-            isGainer={true}
-          />
-        ) : (
-          <div className="trading-card p-4" data-ocid="gainers.empty_state">
-            <p className="text-muted-foreground text-sm text-center py-4">
-              No data available
-            </p>
-          </div>
-        )}
-
-        {losersLoading ? (
-          <div className="trading-card p-4">
-            <Skeleton className="h-48 w-full bg-secondary" />
-          </div>
-        ) : losers && losers.length > 0 ? (
-          <GainersLosersTable
-            title="Top Losers"
-            items={losers}
-            isGainer={false}
-          />
-        ) : (
-          <div className="trading-card p-4" data-ocid="losers.empty_state">
-            <p className="text-muted-foreground text-sm text-center py-4">
-              No data available
-            </p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

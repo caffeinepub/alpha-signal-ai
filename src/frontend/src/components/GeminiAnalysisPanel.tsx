@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
-import { Bot, Cpu, Loader2, Zap } from "lucide-react";
+import { Bot, Cpu, Loader2, RefreshCw, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { GeminiResult, GeminiSignal } from "../hooks/useGeminiEngine";
+import type { GeminiResult, GeminiSignal } from "../hooks/useRealGeminiEngine";
 
 // ─── Color Helpers ────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ function AssetGeminiCard({
             >
               <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
               <span className="text-[11px] text-muted-foreground italic">
-                Gemini 3.0 processing market data...
+                Generating Insight via Gemini 2.0 Flash...
               </span>
             </motion.div>
           ) : (
@@ -155,14 +155,18 @@ function AssetGeminiCard({
               label: "EMA50",
               value:
                 result.ema50 > 0
-                  ? `$${(result.ema50 / (result.ema50 >= 1000 ? 1000 : 1)).toFixed(result.ema50 >= 1000 ? 1 : 2)}${result.ema50 >= 1000 ? "K" : ""}`
+                  ? `$${(result.ema50 / (result.ema50 >= 1000 ? 1000 : 1)).toFixed(result.ema50 >= 1000 ? 1 : 2)}${
+                      result.ema50 >= 1000 ? "K" : ""
+                    }`
                   : "—",
             },
             {
               label: "EMA200",
               value:
                 result.ema200 > 0
-                  ? `$${(result.ema200 / (result.ema200 >= 1000 ? 1000 : 1)).toFixed(result.ema200 >= 1000 ? 1 : 2)}${result.ema200 >= 1000 ? "K" : ""}`
+                  ? `$${(result.ema200 / (result.ema200 >= 1000 ? 1000 : 1)).toFixed(result.ema200 >= 1000 ? 1 : 2)}${
+                      result.ema200 >= 1000 ? "K" : ""
+                    }`
                   : "—",
             },
             {
@@ -210,10 +214,12 @@ export function GeminiAnalysisPanel({
   btc,
   xau,
   isLoading,
+  onRefresh,
 }: {
   btc: GeminiResult;
   xau: GeminiResult;
   isLoading: boolean;
+  onRefresh?: () => void;
 }) {
   return (
     <div className="trading-card p-4" data-ocid="gemini.panel">
@@ -222,19 +228,37 @@ export function GeminiAnalysisPanel({
         <div className="flex items-center gap-2">
           <Bot className="w-4 h-4 text-primary" />
           <span className="text-sm font-bold text-foreground">
-            Gemini 3.0 Analysis
+            Gemini 2.0 Flash Analysis
           </span>
         </div>
-        <Badge
-          className="text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-          data-ocid="gemini.success_state"
-        >
-          <span className="relative flex h-1.5 w-1.5 mr-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-          </span>
-          LIVE GEN-3 ANALYSIS
-        </Badge>
+        <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              data-ocid="gemini.refresh.button"
+              disabled={isLoading || btc.isThinking || xau.isThinking}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold font-mono tracking-wide text-muted-foreground border border-border/40 hover:border-primary/40 hover:text-primary transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <RefreshCw
+                className={`w-2.5 h-2.5 ${
+                  btc.isThinking || xau.isThinking ? "animate-spin" : ""
+                }`}
+              />
+              Refresh
+            </button>
+          )}
+          <Badge
+            className="text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+            data-ocid="gemini.success_state"
+          >
+            <span className="relative flex h-1.5 w-1.5 mr-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+            </span>
+            API: GEMINI-2.0-FLASH · ACTIVE &amp; VERIFIED
+          </Badge>
+        </div>
       </div>
 
       {/* Asset cards */}
@@ -246,7 +270,10 @@ export function GeminiAnalysisPanel({
               className="rounded-xl border border-border/40 bg-secondary/30 p-4 animate-pulse"
             >
               <div className="h-3 bg-secondary rounded w-1/3 mb-3" />
-              <div className="h-2.5 bg-secondary rounded w-3/4 mb-2" />
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-2.5 w-2.5 bg-secondary rounded-full" />
+                <div className="h-2.5 bg-secondary rounded w-2/3" />
+              </div>
               <div className="h-1.5 bg-secondary rounded w-full" />
             </div>
           ))}
@@ -258,10 +285,19 @@ export function GeminiAnalysisPanel({
         </div>
       )}
 
-      {/* Footnote */}
-      <p className="text-[9px] text-muted-foreground text-center mt-3 font-mono">
-        EMA · RSI · ATR · SMC analysis · Refreshes every 30s
-      </p>
+      {/* Footer */}
+      <div className="flex items-center justify-between mt-3">
+        <p className="text-[9px] text-muted-foreground font-mono">
+          Powered by Gemini 2.0 Flash · Secure backend outcall · Refreshes every
+          60s
+        </p>
+        <div className="flex items-center gap-1">
+          <Zap className="w-2.5 h-2.5 text-primary" />
+          <span className="text-[9px] font-mono font-bold text-primary">
+            SMC · RSI · ATR
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

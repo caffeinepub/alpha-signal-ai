@@ -34,6 +34,13 @@ export interface Gainer {
   'changePercent' : number,
   'symbol' : string,
 }
+export interface GeminiAnalysis {
+  'marketBias' : string,
+  'confidence' : bigint,
+  'strategicInsight' : string,
+  'signal' : string,
+  'rawText' : string,
+}
 export interface LiquidationZone {
   'priceLevel' : number,
   'longLiquidations' : number,
@@ -107,6 +114,7 @@ export interface http_request_result {
 }
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'analyzeWithGemini' : ActorMethod<[string, number, number, number, number, number], GeminiAnalysis>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAISignals' : ActorMethod<[], Array<AISignal>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,

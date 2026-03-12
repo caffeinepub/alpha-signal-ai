@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import {
   BarChart3,
   Flame,
+  FlaskConical,
   LayoutDashboard,
   LineChart,
   Menu,
@@ -42,6 +43,12 @@ const navItems = [
     label: "Performance",
     path: "/performance",
     ocid: "nav.performance.link",
+  },
+  {
+    icon: FlaskConical,
+    label: "Research",
+    path: "/research",
+    ocid: "nav.research.link",
   },
 ];
 

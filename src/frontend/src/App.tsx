@@ -6,13 +6,14 @@ import {
   createRouter,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Charts from "./pages/Charts";
 import Dashboard from "./pages/Dashboard";
 import Liquidation from "./pages/Liquidation";
 import Performance from "./pages/Performance";
+import Research from "./pages/Research";
 import Signals from "./pages/Signals";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
@@ -35,6 +36,10 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/performance": {
     title: "Performance",
     subtitle: "Trading analytics and historical performance",
+  },
+  "/research": {
+    title: "Research",
+    subtitle: "AI-powered institutional research reports",
   },
 };
 
@@ -95,12 +100,19 @@ const performanceRoute = createRoute({
   component: Performance,
 });
 
+const researchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/research",
+  component: Research,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   chartsRoute,
   signalsRoute,
   liquidationRoute,
   performanceRoute,
+  researchRoute,
 ]);
 
 const router = createRouter({ routeTree });
