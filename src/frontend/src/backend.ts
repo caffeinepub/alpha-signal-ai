@@ -196,9 +196,23 @@ export enum UserRole {
     user = "user",
     guest = "guest"
 }
+export interface ResearchReport {
+    ticker: string;
+    assetType: string;
+    executiveSummary: string;
+    fundamentalHealth: string;
+    technicalOutlook: string;
+    priceTargets: string;
+    riskAssessment: string;
+    keyCatalysts: string;
+    overallRating: string;
+    rawText: string;
+}
+
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis>;
+    researchWithGemini(ticker: string, assetType: string): Promise<ResearchReport>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     getAISignals(): Promise<Array<AISignal>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
@@ -232,6 +246,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.analyzeWithGemini(asset, price, high24h, low24h, rsi, volume);
+            return result;
+        }
+    }
+    async researchWithGemini(arg0: string, arg1: string): Promise<ResearchReport> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.researchWithGemini(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.researchWithGemini(arg0, arg1);
             return result;
         }
     }

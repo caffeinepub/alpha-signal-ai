@@ -109,6 +109,18 @@ export interface GeminiAnalysis {
     signal: string;
     rawText: string;
 }
+export interface ResearchReport {
+    ticker: string;
+    assetType: string;
+    executiveSummary: string;
+    fundamentalHealth: string;
+    technicalOutlook: string;
+    priceTargets: string;
+    riskAssessment: string;
+    keyCatalysts: string;
+    overallRating: string;
+    rawText: string;
+}
 export enum UserRole {
     admin = "admin",
     user = "user",
@@ -116,6 +128,7 @@ export enum UserRole {
 }
 export interface backendInterface {
     analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis>;
+    researchWithGemini(ticker: string, assetType: string): Promise<ResearchReport>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     getAISignals(): Promise<Array<AISignal>>;
     getCallerUserProfile(): Promise<UserProfile | null>;

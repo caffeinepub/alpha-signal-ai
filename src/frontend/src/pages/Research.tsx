@@ -11,23 +11,14 @@ import {
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ResearchReport } from "../backend";
 import { useActor } from "../hooks/useActor";
 
 // ────────────────────────────────────────────────────────────
 // Types
 // ────────────────────────────────────────────────────────────
-interface ResearchReport {
-  ticker: string;
-  assetType: string;
-  executiveSummary: string;
-  fundamentalHealth: string;
-  technicalOutlook: string;
-  priceTargets: string;
-  riskAssessment: string;
-  keyCatalysts: string;
-  overallRating: string;
-  rawText: string;
+interface ResearchReportWithMeta extends ResearchReport {
   generatedAt: Date;
 }
 
@@ -95,6 +86,101 @@ const RATING_CONFIG: Record<
 };
 
 // ────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────
+
+/**
+ * If the backend returned empty section fields but rawText is populated,
+ * attempt to extract the content using the standard Gemini
+ * response.candidates[0].content.parts[0].text path by parsing the JSON,
+ * then fall back to scanning the raw text for section headers.
+ */
+function extractTextFromGeminiResponse(rawText: string): string {
+  if (!rawText) return "";
+  // Try JSON parse — handle case where rawText is the full API response JSON
+  try {
+    const parsed = JSON.parse(rawText);
+    const text =
+      parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "";
+    if (text) return text;
+  } catch {
+    // rawText is plain text, not JSON — return as-is
+  }
+  return rawText;
+}
+
+function extractSection(
+  text: string,
+  header: string,
+  nextHeaders: string[],
+): string {
+  const upper = text.toUpperCase();
+  const start = upper.indexOf(header.toUpperCase());
+  if (start === -1) return "";
+  let end = text.length;
+  for (const next of nextHeaders) {
+    const pos = upper.indexOf(next.toUpperCase(), start + header.length);
+    if (pos !== -1 && pos < end) end = pos;
+  }
+  return text
+    .slice(start + header.length, end)
+    .replace(/^[:\s]+/, "")
+    .trim();
+}
+
+const SECTION_HEADERS = [
+  "EXECUTIVE SUMMARY",
+  "FUNDAMENTAL HEALTH",
+  "TECHNICAL OUTLOOK",
+  "PRICE TARGETS",
+  "RISK ASSESSMENT",
+  "KEY CATALYSTS",
+  "OVERALL RATING",
+];
+
+function enrichReport(report: ResearchReport): ResearchReport {
+  // If sections are already populated, nothing to do
+  if (report.executiveSummary && report.executiveSummary.length > 20) {
+    return report;
+  }
+  // Try to extract from rawText
+  const fullText = extractTextFromGeminiResponse(report.rawText);
+  if (!fullText) return report;
+
+  const getSection = (header: string) => {
+    const idx = SECTION_HEADERS.indexOf(header);
+    const remaining = SECTION_HEADERS.slice(idx + 1);
+    return extractSection(fullText, header, remaining);
+  };
+
+  const overallRatingRaw = getSection("OVERALL RATING");
+  // Extract just the rating keyword
+  let overallRating = report.overallRating || "HOLD";
+  for (const r of ["STRONG BUY", "STRONG SELL", "BUY", "SELL", "HOLD"]) {
+    if (overallRatingRaw.toUpperCase().includes(r)) {
+      overallRating = r;
+      break;
+    }
+  }
+
+  return {
+    ...report,
+    executiveSummary:
+      getSection("EXECUTIVE SUMMARY") || report.executiveSummary,
+    fundamentalHealth:
+      getSection("FUNDAMENTAL HEALTH") || report.fundamentalHealth,
+    technicalOutlook:
+      getSection("TECHNICAL OUTLOOK") || report.technicalOutlook,
+    priceTargets: getSection("PRICE TARGETS") || report.priceTargets,
+    riskAssessment: getSection("RISK ASSESSMENT") || report.riskAssessment,
+    keyCatalysts: getSection("KEY CATALYSTS") || report.keyCatalysts,
+    overallRating,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
 // Sub-components
 // ────────────────────────────────────────────────────────────
 function SectionCard({
@@ -116,7 +202,6 @@ function SectionCard({
       animate={{ opacity: 1, y: 0 }}
       className={`relative overflow-hidden rounded-lg border ${borderClass} bg-card/60 backdrop-blur-sm p-5`}
     >
-      {/* Left accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${accentClass}`} />
       <div className="flex items-center gap-2.5 mb-3">
         <Icon className={`w-4 h-4 ${accentClass.replace("bg-", "text-")}`} />
@@ -138,7 +223,6 @@ function LoadingProgress({ step }: { step: number }) {
       data-ocid="research.generate.loading_state"
       className="flex flex-col items-center gap-6 py-16"
     >
-      {/* Animated ring */}
       <div className="relative w-20 h-20">
         <svg
           className="w-20 h-20 -rotate-90"
@@ -178,8 +262,6 @@ function LoadingProgress({ step }: { step: number }) {
           <FlaskConical className="w-7 h-7 text-primary animate-pulse" />
         </div>
       </div>
-
-      {/* Step message */}
       <AnimatePresence mode="wait">
         <motion.p
           key={step}
@@ -192,8 +274,6 @@ function LoadingProgress({ step }: { step: number }) {
           {LOADING_STEPS[step] ?? LOADING_STEPS[LOADING_STEPS.length - 1]}
         </motion.p>
       </AnimatePresence>
-
-      {/* Progress bar */}
       <div className="w-64 h-1 rounded-full bg-border overflow-hidden">
         <motion.div
           className="h-full bg-primary rounded-full"
@@ -218,12 +298,28 @@ export default function Research() {
   const [assetType, setAssetType] = useState<AssetType>("Stock");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [report, setReport] = useState<ResearchReport | null>(null);
+  const [report, setReport] = useState<ResearchReportWithMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
 
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickerRef = useRef(ticker);
+  const assetTypeRef = useRef(assetType);
+  const actorRef = useRef(actor);
 
-  // Advance the loading step animation
+  useEffect(() => {
+    tickerRef.current = ticker;
+  }, [ticker]);
+  useEffect(() => {
+    assetTypeRef.current = assetType;
+  }, [assetType]);
+  useEffect(() => {
+    actorRef.current = actor;
+  }, [actor]);
+
+  // Loading step animation
   useEffect(() => {
     if (isLoading) {
       setLoadingStep(0);
@@ -243,33 +339,91 @@ export default function Research() {
     };
   }, [isLoading]);
 
-  const handleGenerate = async () => {
-    if (!ticker.trim() || !actor) return;
+  const clearAutoRefresh = useCallback(() => {
+    if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
+      autoRefreshRef.current = null;
+    }
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setNextRefreshIn(null);
+  }, []);
+
+  const startAutoRefresh = useCallback(
+    (generateFn: () => Promise<void>) => {
+      clearAutoRefresh();
+      let remaining = 60;
+      setNextRefreshIn(remaining);
+      countdownRef.current = setInterval(() => {
+        remaining -= 1;
+        setNextRefreshIn(remaining);
+        if (remaining <= 0) remaining = 60;
+      }, 1000);
+      autoRefreshRef.current = setInterval(() => {
+        remaining = 60;
+        setNextRefreshIn(remaining);
+        generateFn();
+      }, 60_000);
+    },
+    [clearAutoRefresh],
+  );
+
+  // Cleanup on unmount
+  useEffect(() => () => clearAutoRefresh(), [clearAutoRefresh]);
+
+  const generateReport = useCallback(async (sym?: string, type?: string) => {
+    const currentActor = actorRef.current;
+    const currentTicker = sym ?? tickerRef.current;
+    const currentType = type ?? assetTypeRef.current;
+    if (!currentTicker.trim() || !currentActor) return;
+
     setIsLoading(true);
     setError(null);
-    setReport(null);
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await (actor as any).researchWithGemini(
-        ticker.trim().toUpperCase(),
-        assetType,
+      const raw = await currentActor.researchWithGemini(
+        currentTicker.trim().toUpperCase(),
+        currentType,
       );
-      setReport({ ...result, generatedAt: new Date() });
+      // Enrich: parse rawText if section fields are empty (fixes parsing failures)
+      const enriched = enrichReport(raw);
+      setReport({ ...enriched, generatedAt: new Date() });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to generate report",
       );
+      console.error("[Research] researchWithGemini failed:", err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!ticker.trim() || !actor) return;
+    clearAutoRefresh();
+    setReport(null);
+    await generateReport(ticker, assetType);
+    // Start 60s auto-refresh for the current ticker
+    startAutoRefresh(() =>
+      generateReport(tickerRef.current, assetTypeRef.current),
+    );
+  }, [
+    ticker,
+    assetType,
+    actor,
+    generateReport,
+    clearAutoRefresh,
+    startAutoRefresh,
+  ]);
 
   const handleQuickPick = (label: string, type: AssetType) => {
     setTicker(label);
     setAssetType(type);
     setReport(null);
     setError(null);
+    clearAutoRefresh();
   };
 
   const normalizedRating = report?.overallRating?.toUpperCase().trim() ?? "";
@@ -294,11 +448,18 @@ export default function Research() {
             Institutional-grade deep analysis powered by Gemini 1.5 Pro
           </p>
         </div>
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/30 glow-cyan flex-shrink-0">
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-          <span className="text-[10px] font-bold font-mono text-primary tracking-widest">
-            GEMINI-1.5-PRO
-          </span>
+        <div className="flex items-center gap-2">
+          {nextRefreshIn !== null && (
+            <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums">
+              Auto-refresh in {nextRefreshIn}s
+            </span>
+          )}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/30 glow-cyan flex-shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-[10px] font-bold font-mono text-primary tracking-widest">
+              GEMINI-1.5-PRO
+            </span>
+          </div>
         </div>
       </motion.div>
 
@@ -337,13 +498,7 @@ export default function Research() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !isLoading) handleGenerate();
             }}
-            placeholder={`Enter ticker (e.g. ${
-              assetType === "Stock"
-                ? "NVDA"
-                : assetType === "Crypto"
-                  ? "BTC"
-                  : "XAU/USD"
-            })`}
+            placeholder={`Enter ticker (e.g. ${assetType === "Stock" ? "NVDA" : assetType === "Crypto" ? "BTC" : "XAU/USD"})`}
             data-ocid="research.ticker.input"
             className="flex-1 bg-input border border-border rounded-md px-4 py-2.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors"
           />
@@ -544,6 +699,12 @@ export default function Research() {
                 {report.generatedAt.toLocaleTimeString("en-US", {
                   hour12: false,
                 })}
+                {nextRefreshIn !== null && (
+                  <span className="ml-2 text-primary/60">
+                    {" "}
+                    · Auto-refresh in {nextRefreshIn}s
+                  </span>
+                )}
               </span>
             </motion.div>
 
@@ -555,55 +716,50 @@ export default function Research() {
                 accentClass="bg-blue-500"
                 borderClass="border-blue-500/20"
               >
-                {report.executiveSummary}
+                {report.executiveSummary || "—"}
               </SectionCard>
-
               <SectionCard
                 icon={BarChart2}
                 title="Fundamental Health"
                 accentClass="bg-emerald-500"
                 borderClass="border-emerald-500/20"
               >
-                {report.fundamentalHealth}
+                {report.fundamentalHealth || "—"}
                 <p className="mt-3 text-[10px] font-mono text-yellow-400/70 italic">
                   ⚠ AI-estimated. Verify with official filings.
                 </p>
               </SectionCard>
-
               <SectionCard
                 icon={TrendingUp}
                 title="Technical Outlook"
                 accentClass="bg-cyan-500"
                 borderClass="border-cyan-500/20"
               >
-                {report.technicalOutlook}
+                {report.technicalOutlook || "—"}
               </SectionCard>
-
               <SectionCard
                 icon={Target}
                 title="Price Targets"
                 accentClass="bg-violet-500"
                 borderClass="border-violet-500/20"
               >
-                {report.priceTargets}
+                {report.priceTargets || "—"}
               </SectionCard>
-
               <SectionCard
                 icon={ShieldAlert}
                 title="Risk Assessment"
                 accentClass="bg-red-500"
                 borderClass="border-red-500/20"
               >
-                {report.riskAssessment}
+                {report.riskAssessment || "—"}
               </SectionCard>
-
               <SectionCard
                 icon={Zap}
                 title="Key Catalysts"
                 accentClass="bg-amber-500"
                 borderClass="border-amber-500/20"
               >
-                {report.keyCatalysts}
+                {report.keyCatalysts || "—"}
               </SectionCard>
             </div>
 
@@ -628,8 +784,10 @@ export default function Research() {
               </div>
               <button
                 type="button"
+                data-ocid="research.refresh.button"
                 onClick={handleGenerate}
-                className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors"
+                disabled={isLoading}
+                className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
               >
                 <RefreshCw className="w-3 h-3" />
                 Refresh

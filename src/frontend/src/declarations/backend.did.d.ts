@@ -112,9 +112,23 @@ export interface http_request_result {
   'body' : Uint8Array,
   'headers' : Array<http_header>,
 }
+export interface ResearchReport {
+  'ticker' : string,
+  'assetType' : string,
+  'executiveSummary' : string,
+  'fundamentalHealth' : string,
+  'technicalOutlook' : string,
+  'priceTargets' : string,
+  'riskAssessment' : string,
+  'keyCatalysts' : string,
+  'overallRating' : string,
+  'rawText' : string,
+}
+
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'analyzeWithGemini' : ActorMethod<[string, number, number, number, number, number], GeminiAnalysis>,
+  'researchWithGemini' : ActorMethod<[string, string], ResearchReport>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAISignals' : ActorMethod<[], Array<AISignal>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
