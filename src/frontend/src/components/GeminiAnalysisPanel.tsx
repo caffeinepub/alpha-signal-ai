@@ -116,9 +116,9 @@ function AssetGeminiCard({
               transition={{ duration: 0.25 }}
             >
               <p
-                className={`text-[11px] font-semibold leading-relaxed mb-2 ${colors.text}`}
+                className={`text-[11px] leading-relaxed mb-2 whitespace-pre-wrap ${colors.text}`}
               >
-                {result.analysisText}
+                {result.rawText || result.analysisText}
               </p>
             </motion.div>
           )}

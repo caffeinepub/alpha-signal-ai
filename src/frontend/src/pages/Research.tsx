@@ -1,13 +1,10 @@
 import {
   AlertTriangle,
-  BarChart2,
   BookOpen,
   FlaskConical,
   Loader2,
   RefreshCw,
   ShieldAlert,
-  Target,
-  TrendingUp,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -89,6 +86,16 @@ const RATING_CONFIG: Record<
 // Helpers
 // ────────────────────────────────────────────────────────────
 
+const SECTION_HEADERS = [
+  "EXECUTIVE SUMMARY",
+  "FUNDAMENTAL HEALTH",
+  "TECHNICAL OUTLOOK",
+  "PRICE TARGETS",
+  "RISK ASSESSMENT",
+  "KEY CATALYSTS",
+  "OVERALL RATING",
+];
+
 function extractSection(
   text: string,
   header: string,
@@ -108,63 +115,9 @@ function extractSection(
     .trim();
 }
 
-const SECTION_HEADERS = [
-  "EXECUTIVE SUMMARY",
-  "FUNDAMENTAL HEALTH",
-  "TECHNICAL OUTLOOK",
-  "PRICE TARGETS",
-  "RISK ASSESSMENT",
-  "KEY CATALYSTS",
-  "OVERALL RATING",
-];
-
-function isNeutralOrEmpty(text: string | undefined): boolean {
-  if (!text || text.trim().length === 0 || text === "—") return true;
-  const t = text.trim().toUpperCase();
-  return (
-    t === "NEUTRAL" ||
-    t === "N/A" ||
-    t.startsWith("REPORT GENERATION FAILED") ||
-    t.startsWith("ANALYSIS IN PROGRESS") ||
-    t.startsWith("GEMINI")
-  );
-}
-
 // ────────────────────────────────────────────────────────────
 // Sub-components
 // ────────────────────────────────────────────────────────────
-function SectionCard({
-  icon: Icon,
-  title,
-  accentClass,
-  borderClass,
-  children,
-}: {
-  icon: React.ElementType;
-  title: string;
-  accentClass: string;
-  borderClass: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`relative overflow-hidden rounded-lg border ${borderClass} bg-card/60 backdrop-blur-sm p-5`}
-    >
-      <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${accentClass}`} />
-      <div className="flex items-center gap-2.5 mb-3">
-        <Icon className={`w-4 h-4 ${accentClass.replace("bg-", "text-")}`} />
-        <span className="text-xs font-bold font-mono tracking-widest uppercase text-muted-foreground">
-          {title}
-        </span>
-      </div>
-      <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-        {children}
-      </div>
-    </motion.div>
-  );
-}
 
 function LoadingProgress({ step }: { step: number }) {
   const pct = Math.min(((step + 1) / LOADING_STEPS.length) * 100, 95);
@@ -336,8 +289,9 @@ export default function Research() {
       const plainText = await currentActor.researchWithGemini(
         currentTicker.trim().toUpperCase(),
       );
-      // Build ResearchReport from plain text using section extraction
       const fullText = plainText || "";
+
+      // Extract overall rating for the rating card (still useful metadata)
       const getSection = (header: string) => {
         const idx = SECTION_HEADERS.indexOf(header);
         const remaining = SECTION_HEADERS.slice(idx + 1);
@@ -351,25 +305,16 @@ export default function Research() {
           break;
         }
       }
+
       const built: ResearchReportWithMeta = {
         ticker: currentTicker.trim().toUpperCase(),
         assetType: currentType,
-        executiveSummary:
-          getSection("EXECUTIVE SUMMARY") ||
-          (fullText.length > 0
-            ? fullText.slice(0, 400)
-            : "Analysis in progress."),
-        fundamentalHealth:
-          getSection("FUNDAMENTAL HEALTH") ||
-          "Fundamental data being compiled.",
-        technicalOutlook:
-          getSection("TECHNICAL OUTLOOK") || "Technical analysis in progress.",
-        priceTargets:
-          getSection("PRICE TARGETS") || "Price targets being calculated.",
-        riskAssessment:
-          getSection("RISK ASSESSMENT") || "Risk assessment in progress.",
-        keyCatalysts:
-          getSection("KEY CATALYSTS") || "Catalysts being identified.",
+        executiveSummary: "",
+        fundamentalHealth: "",
+        technicalOutlook: "",
+        priceTargets: "",
+        riskAssessment: "",
+        keyCatalysts: "",
         overallRating,
         rawText: fullText,
         generatedAt: new Date(),
@@ -483,7 +428,13 @@ export default function Research() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !isLoading) handleGenerate();
             }}
-            placeholder={`Enter ticker (e.g. ${assetType === "Stock" ? "NVDA" : assetType === "Crypto" ? "BTC" : "XAU/USD"})`}
+            placeholder={`Enter ticker (e.g. ${
+              assetType === "Stock"
+                ? "NVDA"
+                : assetType === "Crypto"
+                  ? "BTC"
+                  : "XAU/USD"
+            })`}
             data-ocid="research.ticker.input"
             className="flex-1 bg-input border border-border rounded-md px-4 py-2.5 text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-colors"
           />
@@ -686,83 +637,36 @@ export default function Research() {
                 })}
                 {nextRefreshIn !== null && (
                   <span className="ml-2 text-primary/60">
-                    {" "}
                     · Auto-refresh in {nextRefreshIn}s
                   </span>
                 )}
               </span>
             </motion.div>
 
-            {/* Section cards */}
-            <div className="grid grid-cols-1 gap-4">
-              <SectionCard
-                icon={BookOpen}
-                title="Executive Summary"
-                accentClass="bg-blue-500"
-                borderClass="border-blue-500/20"
-              >
-                {isNeutralOrEmpty(report.executiveSummary)
-                  ? "System Re-aligning... please wait."
-                  : report.executiveSummary ||
-                    "System Re-aligning... please wait."}
-              </SectionCard>
-              <SectionCard
-                icon={BarChart2}
-                title="Fundamental Health"
-                accentClass="bg-emerald-500"
-                borderClass="border-emerald-500/20"
-              >
-                {isNeutralOrEmpty(report.fundamentalHealth)
-                  ? "System Re-aligning... please wait."
-                  : report.fundamentalHealth ||
-                    "System Re-aligning... please wait."}
-                <p className="mt-3 text-[10px] font-mono text-yellow-400/70 italic">
-                  ⚠ AI-estimated. Verify with official filings.
-                </p>
-              </SectionCard>
-              <SectionCard
-                icon={TrendingUp}
-                title="Technical Outlook"
-                accentClass="bg-cyan-500"
-                borderClass="border-cyan-500/20"
-              >
-                {isNeutralOrEmpty(report.technicalOutlook)
-                  ? "System Re-aligning... please wait."
-                  : report.technicalOutlook ||
-                    "System Re-aligning... please wait."}
-              </SectionCard>
-              <SectionCard
-                icon={Target}
-                title="Price Targets"
-                accentClass="bg-violet-500"
-                borderClass="border-violet-500/20"
-              >
-                {isNeutralOrEmpty(report.priceTargets)
-                  ? "System Re-aligning... please wait."
-                  : report.priceTargets || "System Re-aligning... please wait."}
-              </SectionCard>
-              <SectionCard
-                icon={ShieldAlert}
-                title="Risk Assessment"
-                accentClass="bg-red-500"
-                borderClass="border-red-500/20"
-              >
-                {isNeutralOrEmpty(report.riskAssessment)
-                  ? "System Re-aligning... please wait."
-                  : report.riskAssessment ||
-                    "System Re-aligning... please wait."}
-              </SectionCard>
-              <SectionCard
-                icon={Zap}
-                title="Key Catalysts"
-                accentClass="bg-amber-500"
-                borderClass="border-amber-500/20"
-              >
-                {isNeutralOrEmpty(report.keyCatalysts)
-                  ? "System Re-aligning... please wait."
-                  : report.keyCatalysts || "System Re-aligning... please wait."}
-              </SectionCard>
-            </div>
+            {/* Raw AI Analysis */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="relative overflow-hidden rounded-lg border border-primary/20 bg-card/60 backdrop-blur-sm p-5"
+              data-ocid="research.report.panel"
+            >
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary" />
+              <div className="flex items-center gap-2.5 mb-3">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <span className="text-xs font-bold font-mono tracking-widest uppercase text-muted-foreground">
+                  AI Analysis
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-primary/60" />
+                  <span className="text-[9px] font-mono text-primary/60 tracking-widest">
+                    GEMINI-2.0-FLASH · RAW OUTPUT
+                  </span>
+                </div>
+              </div>
+              <pre className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap font-sans">
+                {report.rawText || "System Re-aligning... please wait."}
+              </pre>
+            </motion.div>
 
             {/* Report metadata */}
             <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-border/30 bg-card/40">
