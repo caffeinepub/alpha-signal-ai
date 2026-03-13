@@ -139,16 +139,8 @@ export const TransformationOutput = IDL.Record({
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-  'analyzeWithGemini' : IDL.Func(
-      [IDL.Text, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64],
-      [GeminiAnalysis],
-      [],
-    ),
-  'researchWithGemini' : IDL.Func(
-      [IDL.Text, IDL.Text],
-      [ResearchReport],
-      [],
-    ),
+  'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
+  'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
   'getSentimentFromNews' : IDL.Func(
       [IDL.Vec(IDL.Text)],
       [GeminiAnalysis],
@@ -312,16 +304,8 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-    'analyzeWithGemini' : IDL.Func(
-        [IDL.Text, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64],
-        [GeminiAnalysis],
-        [],
-      ),
-    'researchWithGemini' : IDL.Func(
-        [IDL.Text, IDL.Text],
-        [ResearchReport],
-        [],
-      ),
+    'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
+    'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
     'getSentimentFromNews' : IDL.Func(
         [IDL.Vec(IDL.Text)],
         [GeminiAnalysis],

@@ -89,28 +89,6 @@ const RATING_CONFIG: Record<
 // Helpers
 // ────────────────────────────────────────────────────────────
 
-/**
- * If the backend returned empty section fields but rawText is populated,
- * attempt to extract the content using the standard Gemini
- * response.candidates[0].content.parts[0].text path by parsing the JSON,
- * then fall back to scanning the raw text for section headers.
- */
-function extractTextFromGeminiResponse(rawText: string): string {
-  if (!rawText) return "";
-  // Try JSON parse — handle case where rawText is the full API response JSON
-  try {
-    const parsed = JSON.parse(rawText);
-    const text =
-      parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "";
-    if (text) return text;
-  } catch {
-    // rawText is plain text, not JSON — return as-is
-  }
-  return rawText;
-}
-
 function extractSection(
   text: string,
   header: string,
@@ -150,50 +128,6 @@ function isNeutralOrEmpty(text: string | undefined): boolean {
     t.startsWith("ANALYSIS IN PROGRESS") ||
     t.startsWith("GEMINI")
   );
-}
-
-function enrichReport(report: ResearchReport): ResearchReport {
-  // If sections are already populated, nothing to do
-  if (
-    report.executiveSummary &&
-    report.executiveSummary.length > 20 &&
-    !report.executiveSummary.startsWith("Report generation")
-  ) {
-    return report;
-  }
-  // Try to extract from rawText
-  const fullText = extractTextFromGeminiResponse(report.rawText);
-  if (!fullText) return report;
-
-  const getSection = (header: string) => {
-    const idx = SECTION_HEADERS.indexOf(header);
-    const remaining = SECTION_HEADERS.slice(idx + 1);
-    return extractSection(fullText, header, remaining);
-  };
-
-  const overallRatingRaw = getSection("OVERALL RATING");
-  // Extract just the rating keyword
-  let overallRating = report.overallRating || "HOLD";
-  for (const r of ["STRONG BUY", "STRONG SELL", "BUY", "SELL", "HOLD"]) {
-    if (overallRatingRaw.toUpperCase().includes(r)) {
-      overallRating = r;
-      break;
-    }
-  }
-
-  return {
-    ...report,
-    executiveSummary:
-      getSection("EXECUTIVE SUMMARY") || report.executiveSummary,
-    fundamentalHealth:
-      getSection("FUNDAMENTAL HEALTH") || report.fundamentalHealth,
-    technicalOutlook:
-      getSection("TECHNICAL OUTLOOK") || report.technicalOutlook,
-    priceTargets: getSection("PRICE TARGETS") || report.priceTargets,
-    riskAssessment: getSection("RISK ASSESSMENT") || report.riskAssessment,
-    keyCatalysts: getSection("KEY CATALYSTS") || report.keyCatalysts,
-    overallRating,
-  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -399,13 +333,48 @@ export default function Research() {
     setError(null);
 
     try {
-      const raw = await currentActor.researchWithGemini(
+      const plainText = await currentActor.researchWithGemini(
         currentTicker.trim().toUpperCase(),
-        currentType,
       );
-      // Enrich: parse rawText if section fields are empty (fixes parsing failures)
-      const enriched = enrichReport(raw);
-      setReport({ ...enriched, generatedAt: new Date() });
+      // Build ResearchReport from plain text using section extraction
+      const fullText = plainText || "";
+      const getSection = (header: string) => {
+        const idx = SECTION_HEADERS.indexOf(header);
+        const remaining = SECTION_HEADERS.slice(idx + 1);
+        return extractSection(fullText, header, remaining);
+      };
+      const overallRatingRaw = getSection("OVERALL RATING");
+      let overallRating = "HOLD";
+      for (const r of ["STRONG BUY", "STRONG SELL", "BUY", "SELL", "HOLD"]) {
+        if (overallRatingRaw.toUpperCase().includes(r)) {
+          overallRating = r;
+          break;
+        }
+      }
+      const built: ResearchReportWithMeta = {
+        ticker: currentTicker.trim().toUpperCase(),
+        assetType: currentType,
+        executiveSummary:
+          getSection("EXECUTIVE SUMMARY") ||
+          (fullText.length > 0
+            ? fullText.slice(0, 400)
+            : "Analysis in progress."),
+        fundamentalHealth:
+          getSection("FUNDAMENTAL HEALTH") ||
+          "Fundamental data being compiled.",
+        technicalOutlook:
+          getSection("TECHNICAL OUTLOOK") || "Technical analysis in progress.",
+        priceTargets:
+          getSection("PRICE TARGETS") || "Price targets being calculated.",
+        riskAssessment:
+          getSection("RISK ASSESSMENT") || "Risk assessment in progress.",
+        keyCatalysts:
+          getSection("KEY CATALYSTS") || "Catalysts being identified.",
+        overallRating,
+        rawText: fullText,
+        generatedAt: new Date(),
+      };
+      setReport(built);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to generate report",

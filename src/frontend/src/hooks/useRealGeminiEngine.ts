@@ -177,28 +177,31 @@ export function useGeminiEngine(): GeminiEngineState {
     }));
 
     try {
-      const [btcResult, xauResult] = await Promise.all([
-        currentActor.analyzeWithGemini(
-          "BTC",
-          btcPrice,
-          btcAsset?.high24h ?? 0,
-          btcAsset?.low24h ?? 0,
-          btcRsi,
-          btcAsset?.volume ?? 0,
-        ),
-        currentActor.analyzeWithGemini(
-          "XAU",
-          xauPrice,
-          xauAsset?.high24h ?? 0,
-          xauAsset?.low24h ?? 0,
-          xauRsi,
-          xauAsset?.volume ?? 0,
-        ),
+      // Build plain-text market data strings for each asset
+      const btcSmc =
+        btcAsset && btcPrice > (btcAsset.high24h ?? 0) * 0.998
+          ? "near 24h high liquidity sweep"
+          : btcAsset && btcPrice < (btcAsset.low24h ?? 0) * 1.002
+            ? "near 24h low liquidity sweep"
+            : "mid range";
+      const xauSmc =
+        xauAsset && xauPrice > (xauAsset.high24h ?? 0) * 0.998
+          ? "near 24h high liquidity sweep"
+          : xauAsset && xauPrice < (xauAsset.low24h ?? 0) * 1.002
+            ? "near 24h low liquidity sweep"
+            : "mid range";
+
+      const btcData = `Asset: BTC, Price: ${btcPrice.toFixed(2)}, RSI: ${btcRsi.toFixed(1)}, SMC: ${btcSmc}, 24h High: ${(btcAsset?.high24h ?? 0).toFixed(2)}, 24h Low: ${(btcAsset?.low24h ?? 0).toFixed(2)}, Volume: ${(btcAsset?.volume ?? 0).toFixed(0)}`;
+      const xauData = `Asset: XAU/USD (Gold), Price: ${xauPrice.toFixed(2)}, RSI: ${xauRsi.toFixed(1)}, SMC: ${xauSmc}, 24h High: ${(xauAsset?.high24h ?? 0).toFixed(2)}, 24h Low: ${(xauAsset?.low24h ?? 0).toFixed(2)}, Volume: ${(xauAsset?.volume ?? 0).toFixed(0)}`;
+
+      const [btcText, xauText] = await Promise.all([
+        currentActor.analyzeWithGemini(btcData),
+        currentActor.analyzeWithGemini(xauData),
       ]);
 
       // ── Null-response guard: auto-retry up to MAX_RETRIES ─────────────────
-      const btcEmpty = !btcResult?.rawText || btcResult.rawText.trim() === "";
-      const xauEmpty = !xauResult?.rawText || xauResult.rawText.trim() === "";
+      const btcEmpty = !btcText || btcText.trim() === "";
+      const xauEmpty = !xauText || xauText.trim() === "";
 
       if ((btcEmpty || xauEmpty) && retryCountRef.current < MAX_RETRIES) {
         retryCountRef.current += 1;
@@ -206,6 +209,42 @@ export function useGeminiEngine(): GeminiEngineState {
         setTimeout(() => runAnalysis(true), 2000);
         return;
       }
+
+      // ── Parse plain text response: BIAS/CONFIDENCE/SIGNAL/INSIGHT ─────────
+      const parsePlainText = (text: string) => {
+        const extract = (key: string) => {
+          const m = text.match(new RegExp(`${key}:\s*(.+)`, "i"));
+          return m ? m[1].trim() : "";
+        };
+        const biasRaw = extract("BIAS");
+        const confRaw = extract("CONFIDENCE");
+        const signalRaw = extract("SIGNAL");
+        const insight =
+          extract("INSIGHT") ||
+          text
+            .split("\n")
+            .filter((l) => l.trim() && !l.includes(":"))
+            .join(" ")
+            .slice(0, 200) ||
+          "Analysis complete.";
+        const bias = biasRaw || "Neutral";
+        const conf = Number.parseInt(confRaw) || 65;
+        const signal = (
+          signalRaw.toUpperCase().includes("STRONG BUY")
+            ? "STRONG BUY"
+            : signalRaw.toUpperCase().includes("STRONG SELL")
+              ? "STRONG SELL"
+              : signalRaw.toUpperCase().includes("BUY")
+                ? "BUY"
+                : signalRaw.toUpperCase().includes("SELL")
+                  ? "SELL"
+                  : "NEUTRAL"
+        ) as string;
+        return { bias, conf, signal, insight };
+      };
+
+      const btcParsed = parsePlainText(btcText || "");
+      const xauParsed = parsePlainText(xauText || "");
 
       retryCountRef.current = 0;
       const now = new Date();
@@ -220,14 +259,14 @@ export function useGeminiEngine(): GeminiEngineState {
           lastUpdated: now,
           currentPrice: btcPrice,
           rsi14: btcRsi,
-          signal: mapSignal(btcResult.signal),
-          geminiConfidence: Number(btcResult.confidence),
-          marketBias: btcResult.marketBias,
-          strategicInsight: btcResult.strategicInsight,
-          rawText: btcResult.rawText,
+          signal: mapSignal(btcParsed.signal),
+          geminiConfidence: btcParsed.conf,
+          marketBias: btcParsed.bias,
+          strategicInsight: btcParsed.insight,
+          rawText: btcText || "",
           analysisText: btcEmpty
             ? "Analysis unavailable — retrying..."
-            : `${btcResult.marketBias} — ${btcResult.strategicInsight}`,
+            : `${btcParsed.bias} — ${btcParsed.insight}`,
           nearHigh:
             btcAsset && btcAsset.high24h > 0
               ? Math.abs(btcPrice - btcAsset.high24h) / btcAsset.high24h <=
@@ -244,14 +283,14 @@ export function useGeminiEngine(): GeminiEngineState {
           lastUpdated: now,
           currentPrice: xauPrice,
           rsi14: xauRsi,
-          signal: mapSignal(xauResult.signal),
-          geminiConfidence: Number(xauResult.confidence),
-          marketBias: xauResult.marketBias,
-          strategicInsight: xauResult.strategicInsight,
-          rawText: xauResult.rawText,
+          signal: mapSignal(xauParsed.signal),
+          geminiConfidence: xauParsed.conf,
+          marketBias: xauParsed.bias,
+          strategicInsight: xauParsed.insight,
+          rawText: xauText || "",
           analysisText: xauEmpty
             ? "Analysis unavailable — retrying..."
-            : `${xauResult.marketBias} — ${xauResult.strategicInsight}`,
+            : `${xauParsed.bias} — ${xauParsed.insight}`,
           nearHigh:
             xauAsset && xauAsset.high24h > 0
               ? Math.abs(xauPrice - xauAsset.high24h) / xauAsset.high24h <=

@@ -631,36 +631,17 @@ actor {
   // ─── Gemini 2.0 Flash Analysis ────────────────────────────────────────────
   // All AI analysis uses gemini-2.0-flash exclusively.
 
-  public shared func analyzeWithGemini(
-    asset : Text,
-    price : Float,
-    high24h : Float,
-    low24h : Float,
-    rsi : Float,
-    volume : Float,
-  ) : async GeminiAnalysis {
-    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+  public shared func analyzeWithGemini(marketData : Text) : async Text {
+    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
-    let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data for " # asset # ". Your response must be a single JSON object with NO markdown, NO code blocks, and NO extra text. If you add anything else, the system breaks. Return exactly this structure: {\"bias\":\"Bullish or Bearish or Neutral\",\"confidence\":75,\"signal\":\"STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\",\"insight\":\"one concise sentence about the trade setup\"}";
-
-    let smc = if (price > high24h * 0.998) { "near_high_liquidity_sweep" }
-              else if (price < low24h * 1.002) { "near_low_liquidity_sweep" }
-              else { "mid_range" };
-    let userMsg = "Analyze this raw market data: Asset: " # asset
-      # ", Price: " # price.toText()
-      # ", RSI: " # rsi.toText()
-      # ", SMC: " # smc
-      # ", 24h High: " # high24h.toText()
-      # ", 24h Low: " # low24h.toText()
-      # ", Volume: " # volume.toText()
-      # ". Provide a 5-minute scalping outlook. Return ONLY the JSON object, nothing else.";
+    let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data. Return your analysis in plain text using EXACTLY this format (no JSON, no markdown):\nBIAS: [BULLISH or BEARISH or NEUTRAL]\nCONFIDENCE: [0-100]\nSIGNAL: [STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL]\nINSIGHT: [one concise sentence about the 5-minute scalping setup]";
 
     let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
 
     let reqBody = "{\"system_instruction\":{\"parts\":[{\"text\":\"" # sysInstruction # "\"}]},"
       # "\"safetySettings\":" # safetySettings # ","
-      # "\"contents\":[{\"parts\":[{\"text\":\"" # userMsg # "\"}]}]}";
+      # "\"contents\":[{\"parts\":[{\"text\":\"" # marketData # "\"}]}]}";
 
     let hdrs : [OutCall.Header] = [
       { name = "Content-Type"; value = "application/json" },
@@ -670,23 +651,11 @@ actor {
       let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
       let content = extractGeminiContent(responseText);
       if (content.size() == 0) {
-        return {
-          marketBias = "Neutral";
-          confidence = 50;
-          signal = "NEUTRAL";
-          strategicInsight = "Gemini response could not be parsed. Raw: " # responseText;
-          rawText = responseText;
-        };
+        return "BIAS: NEUTRAL\nCONFIDENCE: 50\nSIGNAL: NEUTRAL\nINSIGHT: Gemini analysis temporarily unavailable.";
       };
-      parseGeminiJson(content);
+      content;
     } catch (_) {
-      {
-        marketBias = "Neutral";
-        confidence = 50;
-        signal = "NEUTRAL";
-        strategicInsight = "Gemini 2.0 Flash API temporarily unavailable.";
-        rawText = "";
-      };
+      "BIAS: NEUTRAL\nCONFIDENCE: 50\nSIGNAL: NEUTRAL\nINSIGHT: AI analysis temporarily unavailable. Please try again.";
     };
   };
 
@@ -767,18 +736,13 @@ actor {
     };
   };
 
-  public shared func researchWithGemini(
-    ticker : Text,
-    assetType : Text,
-  ) : async ResearchReport {
-    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+  public shared func researchWithGemini(ticker : Text) : async Text {
+    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
-    let sysInstruction = "You are a senior institutional research analyst. Your response must contain NO markdown formatting (no **, no ###, no bullet points with -). Structure your response using EXACTLY these section headers on their own lines: EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section must have 2-4 sentences. For PRICE TARGETS include Bear/Base/Bull scenarios with specific numbers. For OVERALL RATING use: STRONG BUY / BUY / HOLD / SELL / STRONG SELL followed by a brief rationale.";
+    let sysInstruction = "You are a senior institutional research analyst. Provide a comprehensive research report in plain text. Structure your response using EXACTLY these section headers (each on its own line): EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section: 3-5 sentences. PRICE TARGETS: include Bear/Base/Bull scenarios with numbers. OVERALL RATING: STRONG BUY, BUY, HOLD, SELL, or STRONG SELL followed by rationale. No markdown, no bullet points with -.";
 
-    let userMsg = "Generate a comprehensive institutional research report for " # ticker
-      # " (" # assetType # "). Base your analysis on your training knowledge."
-      # " Include AI-estimated fundamental metrics. Provide specific price targets and a clear investment thesis.";
+    let userMsg = "Generate a comprehensive institutional research report for " # ticker # ". Use your training knowledge for estimates. Be direct and specific with price targets.";
 
     let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
 
@@ -797,40 +761,18 @@ actor {
       let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
       let content = extractGeminiContent(responseText);
       if (content.size() == 0) {
-        return {
-          ticker;
-          assetType;
-          executiveSummary = "Report generation failed. Please retry.";
-          fundamentalHealth = "";
-          technicalOutlook = "";
-          priceTargets = "";
-          riskAssessment = "";
-          keyCatalysts = "";
-          overallRating = "NEUTRAL";
-          rawText = responseText;
-        };
+        return "EXECUTIVE SUMMARY\nAI analysis temporarily unavailable for " # ticker # ". Please try again.\n\nOVERALL RATING\nNEUTRAL - Insufficient data.";
       };
-      parseResearchReport(content, ticker, assetType);
+      content;
     } catch (_) {
-      {
-        ticker;
-        assetType;
-        executiveSummary = "Gemini 2.0 Flash API temporarily unavailable. Please retry.";
-        fundamentalHealth = "";
-        technicalOutlook = "";
-        priceTargets = "";
-        riskAssessment = "";
-        keyCatalysts = "";
-        overallRating = "NEUTRAL";
-        rawText = "";
-      };
+      "EXECUTIVE SUMMARY\nAI analysis temporarily unavailable for " # ticker # ". System re-aligning, please wait.\n\nOVERALL RATING\nNEUTRAL - Service temporarily unavailable.";
     };
   };
 
   // ─── Gemini 2.0 Flash Sentiment Analysis from News Headlines ─────────────
 
   public shared func getSentimentFromNews(headlines : [Text]) : async GeminiAnalysis {
-    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
     let sysInstruction = "You are a senior market sentiment analyst. Your response must be a single JSON object with NO markdown, NO code blocks, and NO extra text. If you add anything else, the system breaks. Return exactly: {\"bias\":\"Bullish or Bearish or Neutral\",\"confidence\":75,\"signal\":\"STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\",\"insight\":\"one concise sentence summarizing market sentiment\"}";

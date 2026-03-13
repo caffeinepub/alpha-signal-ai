@@ -127,8 +127,8 @@ export interface ResearchReport {
 
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'analyzeWithGemini' : ActorMethod<[string, number, number, number, number, number], GeminiAnalysis>,
-  'researchWithGemini' : ActorMethod<[string, string], ResearchReport>,
+  'analyzeWithGemini' : ActorMethod<[string], string>,
+  'researchWithGemini' : ActorMethod<[string], string>,
   'getSentimentFromNews' : ActorMethod<[Array<string>], GeminiAnalysis>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAISignals' : ActorMethod<[], Array<AISignal>>,

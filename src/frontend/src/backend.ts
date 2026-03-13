@@ -211,8 +211,8 @@ export interface ResearchReport {
 
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
-    analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis>;
-    researchWithGemini(ticker: string, assetType: string): Promise<ResearchReport>;
+    analyzeWithGemini(marketData: string): Promise<string>;
+    researchWithGemini(ticker: string): Promise<string>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     getAISignals(): Promise<Array<AISignal>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
@@ -235,31 +235,31 @@ export interface backendInterface {
 import type { UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
-    async analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis> {
+    async analyzeWithGemini(marketData: string): Promise<string> {
         if (this.processError) {
             try {
-                const result = await this.actor.analyzeWithGemini(asset, price, high24h, low24h, rsi, volume);
+                const result = await this.actor.analyzeWithGemini(marketData);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.analyzeWithGemini(asset, price, high24h, low24h, rsi, volume);
+            const result = await this.actor.analyzeWithGemini(marketData);
             return result;
         }
     }
-    async researchWithGemini(arg0: string, arg1: string): Promise<ResearchReport> {
+    async researchWithGemini(ticker: string): Promise<string> {
         if (this.processError) {
             try {
-                const result = await this.actor.researchWithGemini(arg0, arg1);
+                const result = await this.actor.researchWithGemini(ticker);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.researchWithGemini(arg0, arg1);
+            const result = await this.actor.researchWithGemini(ticker);
             return result;
         }
     }
