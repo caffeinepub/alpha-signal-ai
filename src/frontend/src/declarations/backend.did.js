@@ -30,6 +30,27 @@ export const GeminiAnalysis = IDL.Record({
   'signal' : IDL.Text,
   'rawText' : IDL.Text,
 });
+export const ResearchReport = IDL.Record({
+  'ticker' : IDL.Text,
+  'assetType' : IDL.Text,
+  'executiveSummary' : IDL.Text,
+  'fundamentalHealth' : IDL.Text,
+  'technicalOutlook' : IDL.Text,
+  'priceTargets' : IDL.Text,
+  'riskAssessment' : IDL.Text,
+  'keyCatalysts' : IDL.Text,
+  'overallRating' : IDL.Text,
+  'rawText' : IDL.Text,
+});
+export const GeminiResearchResult = IDL.Record({
+  'symbol' : IDL.Text,
+  'bias' : IDL.Text,
+  'confidence' : IDL.Nat,
+  'analysis' : IDL.Text,
+  'entry' : IDL.Float64,
+  'tp' : IDL.Float64,
+  'sl' : IDL.Float64,
+});
 export const UserProfile = IDL.Record({
   'name' : IDL.Text,
   'subscriptionTier' : IDL.Text,
@@ -123,6 +144,16 @@ export const idlService = IDL.Service({
       [GeminiAnalysis],
       [],
     ),
+  'researchWithGemini' : IDL.Func(
+      [IDL.Text, IDL.Text],
+      [ResearchReport],
+      [],
+    ),
+  'getSentimentFromNews' : IDL.Func(
+      [IDL.Vec(IDL.Text)],
+      [GeminiAnalysis],
+      [],
+    ),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
@@ -182,6 +213,18 @@ export const idlFactory = ({ IDL }) => {
     'confidence' : IDL.Nat,
     'strategicInsight' : IDL.Text,
     'signal' : IDL.Text,
+    'rawText' : IDL.Text,
+  });
+  const ResearchReport = IDL.Record({
+    'ticker' : IDL.Text,
+    'assetType' : IDL.Text,
+    'executiveSummary' : IDL.Text,
+    'fundamentalHealth' : IDL.Text,
+    'technicalOutlook' : IDL.Text,
+    'priceTargets' : IDL.Text,
+    'riskAssessment' : IDL.Text,
+    'keyCatalysts' : IDL.Text,
+    'overallRating' : IDL.Text,
     'rawText' : IDL.Text,
   });
   const UserProfile = IDL.Record({
@@ -271,6 +314,16 @@ export const idlFactory = ({ IDL }) => {
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'analyzeWithGemini' : IDL.Func(
         [IDL.Text, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64, IDL.Float64],
+        [GeminiAnalysis],
+        [],
+      ),
+    'researchWithGemini' : IDL.Func(
+        [IDL.Text, IDL.Text],
+        [ResearchReport],
+        [],
+      ),
+    'getSentimentFromNews' : IDL.Func(
+        [IDL.Vec(IDL.Text)],
         [GeminiAnalysis],
         [],
       ),

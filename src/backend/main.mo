@@ -440,6 +440,7 @@ actor {
     result;
   };
 
+  // Extracts the text field from the Gemini API response JSON envelope
   func extractGeminiContent(body : Text) : Text {
     let marker = "\"text\":\"";
     let mChars = marker.toArray();
@@ -485,38 +486,152 @@ actor {
     "";
   };
 
-  func parseGeminiText(raw : Text) : GeminiAnalysis {
-    var marketBias = "Neutral";
-    var confidence : Nat = 50;
-    var signal = "NEUTRAL";
-    var strategicInsight = "Awaiting real-time Gemini analysis.";
-
-    for (line in raw.split(#char '\n')) {
-      let trimmed = line.trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '\r' }));
-      if (trimmed.startsWith(#text "BIAS:")) {
-        let val = sliceAfter(trimmed, "BIAS:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
-        if (val.size() > 0) marketBias := val;
-      } else if (trimmed.startsWith(#text "CONFIDENCE:")) {
-        let val = sliceAfter(trimmed, "CONFIDENCE:").trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '%' }));
-        switch (Nat.fromText(val)) {
-          case (?n) { confidence := if (n > 100) 100 else n };
-          case null {};
+  // Extracts a JSON string field value: finds "key":"value" and returns value
+  func extractJsonStringField(json : Text, key : Text) : Text {
+    let marker = "\"" # key # "\":\"";
+    let mChars = marker.toArray();
+    let jChars = json.toArray();
+    let mSize = mChars.size();
+    let jSize = jChars.size();
+    var i = 0;
+    while (i + mSize <= jSize) {
+      var matched = true;
+      var j = 0;
+      while (j < mSize) {
+        if (jChars[i + j] != mChars[j]) {
+          matched := false;
+          j := mSize;
+        } else {
+          j += 1;
         };
-      } else if (trimmed.startsWith(#text "SIGNAL:")) {
-        let val = sliceAfter(trimmed, "SIGNAL:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
-        if (val.size() > 0) signal := val;
-      } else if (trimmed.startsWith(#text "INSIGHT:")) {
-        let val = sliceAfter(trimmed, "INSIGHT:").trim(#predicate(func(c : Char) : Bool { c == ' ' }));
-        if (val.size() > 0) strategicInsight := val;
+      };
+      if (matched) {
+        var result = "";
+        var k = i + mSize;
+        var escaped = false;
+        label readStr while (k < jSize) {
+          let c = jChars[k];
+          if (escaped) {
+            result #= Text.fromChar(c);
+            escaped := false;
+          } else if (Text.fromChar(c) == "\\") {
+            escaped := true;
+          } else if (Text.fromChar(c) == "\"") {
+            break readStr;
+          } else {
+            result #= Text.fromChar(c);
+          };
+          k += 1;
+        };
+        return result;
+      };
+      i += 1;
+    };
+    "";
+  };
+
+  // Extracts a JSON numeric field value: finds "key":N and returns N as Nat
+  func extractJsonNatField(json : Text, key : Text) : Nat {
+    let marker = "\"" # key # "\":";
+    let mChars = marker.toArray();
+    let jChars = json.toArray();
+    let mSize = mChars.size();
+    let jSize = jChars.size();
+    var i = 0;
+    while (i + mSize <= jSize) {
+      var matched = true;
+      var j = 0;
+      while (j < mSize) {
+        if (jChars[i + j] != mChars[j]) {
+          matched := false;
+          j := mSize;
+        } else {
+          j += 1;
+        };
+      };
+      if (matched) {
+        var numStr = "";
+        var k = i + mSize;
+        // skip whitespace
+        while (k < jSize and Text.fromChar(jChars[k]) == " ") { k += 1 };
+        label readNum while (k < jSize) {
+          let c = Text.fromChar(jChars[k]);
+          if (c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or
+              c == "5" or c == "6" or c == "7" or c == "8" or c == "9") {
+            numStr #= c;
+            k += 1;
+          } else {
+            break readNum;
+          };
+        };
+        switch (Nat.fromText(numStr)) {
+          case (?n) { return if (n > 100) 100 else n };
+          case null { return 50 };
+        };
+      };
+      i += 1;
+    };
+    50;
+  };
+
+  // Parses strict JSON response from Gemini for analyzeWithGemini
+  // Expected: {"bias":"...","confidence":N,"signal":"...","insight":"..."}
+  func parseGeminiJson(raw : Text) : GeminiAnalysis {
+    // Strip any markdown code fences if Gemini added them despite instructions
+    var cleaned = raw;
+    // Remove ```json and ``` if present
+    if (cleaned.startsWith(#text "```")) {
+      // find first newline and strip header
+      let chars = cleaned.toArray();
+      var start = 0;
+      while (start < chars.size() and Text.fromChar(chars[start]) != "\n") {
+        start += 1;
+      };
+      if (start < chars.size()) {
+        var s = "";
+        var k = start + 1;
+        while (k < chars.size()) {
+          s #= Text.fromChar(chars[k]);
+          k += 1;
+        };
+        cleaned := s;
       };
     };
+    // Remove trailing ```
+    if (cleaned.endsWith(#text "```")) {
+      let chars = cleaned.toArray();
+      var endIdx = chars.size();
+      while (endIdx > 0 and Text.fromChar(chars[endIdx - 1]) == "`") {
+        endIdx -= 1;
+      };
+      var s = "";
+      var k = 0;
+      while (k < endIdx) {
+        s #= Text.fromChar(chars[k]);
+        k += 1;
+      };
+      cleaned := s;
+    };
+    cleaned := cleaned.trim(#predicate(func(c : Char) : Bool { c == ' ' or c == '\n' or c == '\r' }));
 
-    { marketBias; confidence; signal; strategicInsight; rawText = raw };
+    let bias = extractJsonStringField(cleaned, "bias");
+    let confidence = extractJsonNatField(cleaned, "confidence");
+    let signal = extractJsonStringField(cleaned, "signal");
+    let insight = extractJsonStringField(cleaned, "insight");
+
+    {
+      marketBias = if (bias.size() > 0) bias else "Neutral";
+      confidence = if (confidence == 0) 50 else confidence;
+      signal = if (signal.size() > 0) signal else "NEUTRAL";
+      strategicInsight = if (insight.size() > 0) insight else "Analysis pending.";
+      rawText = raw;
+    };
   };
 
   // ─── Gemini 2.0 Flash Analysis ────────────────────────────────────────────
+  // All AI analysis uses gemini-2.0-flash exclusively.
 
-  public func analyzeWithGemini(
+  public shared func analyzeWithGemini(
     asset : Text,
     price : Float,
     high24h : Float,
@@ -527,19 +642,19 @@ actor {
     let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
-    let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data. Identify Liquidity Sweeps, Order Blocks, and Market Structure. Respond ONLY in this exact 4-line format with no extra text or markdown:\nBIAS: Bullish or Bearish or Neutral\nCONFIDENCE: integer 0-100\nSIGNAL: STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\nINSIGHT: one concise sentence";
+    let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data for " # asset # ". Your response must be a single JSON object with NO markdown, NO code blocks, and NO extra text. If you add anything else, the system breaks. Return exactly this structure: {\"bias\":\"Bullish or Bearish or Neutral\",\"confidence\":75,\"signal\":\"STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\",\"insight\":\"one concise sentence about the trade setup\"}";
 
     let smc = if (price > high24h * 0.998) { "near_high_liquidity_sweep" }
               else if (price < low24h * 1.002) { "near_low_liquidity_sweep" }
               else { "mid_range" };
-    let userMsg = "Analyze this raw market data: Price: " # price.toText()
+    let userMsg = "Analyze this raw market data: Asset: " # asset
+      # ", Price: " # price.toText()
       # ", RSI: " # rsi.toText()
       # ", SMC: " # smc
-      # ", Asset: " # asset
       # ", 24h High: " # high24h.toText()
       # ", 24h Low: " # low24h.toText()
       # ", Volume: " # volume.toText()
-      # ". Provide a 5-minute scalping outlook. Keep it short and technical.";
+      # ". Provide a 5-minute scalping outlook. Return ONLY the JSON object, nothing else.";
 
     let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
 
@@ -559,27 +674,25 @@ actor {
           marketBias = "Neutral";
           confidence = 50;
           signal = "NEUTRAL";
-          strategicInsight = "Gemini response could not be parsed.";
+          strategicInsight = "Gemini response could not be parsed. Raw: " # responseText;
           rawText = responseText;
         };
       };
-      parseGeminiText(content);
+      parseGeminiJson(content);
     } catch (_) {
       {
         marketBias = "Neutral";
         confidence = 50;
         signal = "NEUTRAL";
-        strategicInsight = "Gemini API temporarily unavailable.";
+        strategicInsight = "Gemini 2.0 Flash API temporarily unavailable.";
         rawText = "";
       };
     };
   };
 
-  // ─── Gemini 1.5 Pro Deep Research ─────────────────────────────────────────
-  //
-  // Uses gemini-1.5-pro for comprehensive multi-section research reports.
+  // ─── Gemini 2.0 Flash Deep Research ─────────────────────────────────────────
+  // Uses gemini-2.0-flash for comprehensive multi-section research reports.
   // Supports stocks (NVDA, AAPL), crypto (BTC, ETH), and forex (XAU/USD).
-  // Fundamental data is AI-estimated from training knowledge with disclaimer.
 
   func extractSection(text : Text, sectionLabel : Text) : Text {
     let labelChars = sectionLabel.toArray();
@@ -587,7 +700,6 @@ actor {
     let lSize = labelChars.size();
     let tSize = textChars.size();
     var i = 0;
-    // Find the label in text
     label searchLabel while (i + lSize <= tSize) {
       var matched = true;
       var j = 0;
@@ -600,20 +712,16 @@ actor {
         };
       };
       if (matched) {
-        // Skip past the label and any colon/newline
         var k = i + lSize;
         while (k < tSize and (Text.fromChar(textChars[k]) == ":" or Text.fromChar(textChars[k]) == " " or Text.fromChar(textChars[k]) == "\n" or Text.fromChar(textChars[k]) == "\r")) {
           k += 1;
         };
-        // Read until double newline or next ALL-CAPS section header
         var result = "";
         var prev = ' ';
         label readSection while (k < tSize) {
           let c = textChars[k];
           let cStr = Text.fromChar(c);
-          // Stop on double newline followed by uppercase word (next section)
           if (Text.fromChar(prev) == "\n" and cStr == "\n") {
-            // Check if next non-whitespace char starts an uppercase sequence
             var peek = k + 1;
             while (peek < tSize and (Text.fromChar(textChars[peek]) == " " or Text.fromChar(textChars[peek]) == "\n" or Text.fromChar(textChars[peek]) == "\r")) {
               peek += 1;
@@ -659,20 +767,18 @@ actor {
     };
   };
 
-  public func researchWithGemini(
+  public shared func researchWithGemini(
     ticker : Text,
     assetType : Text,
   ) : async ResearchReport {
     let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=" # apiKey;
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
-    let sysInstruction = "You are a senior institutional research analyst at a top-tier investment bank. Produce deep-dive research reports with institutional-grade rigor. Always structure your response using EXACTLY these section headers on their own lines: EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section must have 2-4 sentences of substantive analysis. For PRICE TARGETS include Bear/Base/Bull scenarios with specific numbers. For OVERALL RATING use one of: STRONG BUY / BUY / HOLD / SELL / STRONG SELL followed by a brief rationale. Do not use markdown formatting like ** or ###.";
+    let sysInstruction = "You are a senior institutional research analyst. Your response must contain NO markdown formatting (no **, no ###, no bullet points with -). Structure your response using EXACTLY these section headers on their own lines: EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section must have 2-4 sentences. For PRICE TARGETS include Bear/Base/Bull scenarios with specific numbers. For OVERALL RATING use: STRONG BUY / BUY / HOLD / SELL / STRONG SELL followed by a brief rationale.";
 
     let userMsg = "Generate a comprehensive institutional research report for " # ticker
-      # " (" # assetType # "). Base your analysis on your training knowledge up to your knowledge cutoff."
-      # " Include AI-estimated fundamental metrics (P/E, revenue growth, market position for stocks;"
-      # " on-chain metrics, market cap, adoption for crypto; macro drivers for forex/commodities)."
-      # " Provide specific price targets and a clear investment thesis.";
+      # " (" # assetType # "). Base your analysis on your training knowledge."
+      # " Include AI-estimated fundamental metrics. Provide specific price targets and a clear investment thesis.";
 
     let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
 
@@ -694,8 +800,8 @@ actor {
         return {
           ticker;
           assetType;
-          executiveSummary = "Report generation failed. Raw response: " # responseText;
-          fundamentalHealth = "Please retry the analysis.";
+          executiveSummary = "Report generation failed. Please retry.";
+          fundamentalHealth = "";
           technicalOutlook = "";
           priceTargets = "";
           riskAssessment = "";
@@ -709,7 +815,7 @@ actor {
       {
         ticker;
         assetType;
-        executiveSummary = "Gemini 1.5 Pro API temporarily unavailable. Please retry.";
+        executiveSummary = "Gemini 2.0 Flash API temporarily unavailable. Please retry.";
         fundamentalHealth = "";
         technicalOutlook = "";
         priceTargets = "";
@@ -720,4 +826,56 @@ actor {
       };
     };
   };
+
+  // ─── Gemini 2.0 Flash Sentiment Analysis from News Headlines ─────────────
+
+  public shared func getSentimentFromNews(headlines : [Text]) : async GeminiAnalysis {
+    let apiKey = "AIzaSyDxNJCF3fBLc8E7r4oAEUCngscWMzzGDt8";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
+
+    let sysInstruction = "You are a senior market sentiment analyst. Your response must be a single JSON object with NO markdown, NO code blocks, and NO extra text. If you add anything else, the system breaks. Return exactly: {\"bias\":\"Bullish or Bearish or Neutral\",\"confidence\":75,\"signal\":\"STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\",\"insight\":\"one concise sentence summarizing market sentiment\"}";
+
+    var headlinesText = "";
+    var idx = 0;
+    while (idx < headlines.size()) {
+      headlinesText #= (idx + 1).toText() # ". " # headlines[idx] # "\n";
+      idx += 1;
+    };
+
+    let userMsg = "Analyze the market sentiment from these headlines and return ONLY the JSON object:\n" # headlinesText;
+
+    let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
+
+    let reqBody = "{\"system_instruction\":{\"parts\":[{\"text\":\"" # sysInstruction # "\"}]},"
+      # "\"safetySettings\":" # safetySettings # ","
+      # "\"contents\":[{\"parts\":[{\"text\":\"" # userMsg # "\"}]}]}";
+
+    let hdrs : [OutCall.Header] = [
+      { name = "Content-Type"; value = "application/json" },
+    ];
+
+    try {
+      let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
+      let content = extractGeminiContent(responseText);
+      if (content.size() == 0) {
+        return {
+          marketBias = "Neutral";
+          confidence = 50;
+          signal = "NEUTRAL";
+          strategicInsight = "Sentiment analysis unavailable.";
+          rawText = responseText;
+        };
+      };
+      parseGeminiJson(content);
+    } catch (_) {
+      {
+        marketBias = "Neutral";
+        confidence = 50;
+        signal = "NEUTRAL";
+        strategicInsight = "Gemini 2.0 Flash sentiment API temporarily unavailable.";
+        rawText = "";
+      };
+    };
+  };
+
 };

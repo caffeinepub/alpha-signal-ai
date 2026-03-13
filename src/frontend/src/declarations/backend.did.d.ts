@@ -129,6 +129,7 @@ export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'analyzeWithGemini' : ActorMethod<[string, number, number, number, number, number], GeminiAnalysis>,
   'researchWithGemini' : ActorMethod<[string, string], ResearchReport>,
+  'getSentimentFromNews' : ActorMethod<[Array<string>], GeminiAnalysis>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAISignals' : ActorMethod<[], Array<AISignal>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,

@@ -6,6 +6,7 @@ import {
   DollarSign,
   LayersIcon,
   LayoutDashboard,
+  Newspaper,
   TrendingDown,
   TrendingUp,
   Trophy,
@@ -17,10 +18,12 @@ import { BacktestPerformancePanel } from "../components/BacktestPerformancePanel
 import { CleanSignalCard } from "../components/CleanSignalCard";
 import { GeminiAnalysisPanel } from "../components/GeminiAnalysisPanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
+import { LiveHeadlinesSection } from "../components/LiveHeadlinesSection";
 import { MarketPressureMeter } from "../components/MarketPressureMeter";
 import { ScalperActionCard } from "../components/ScalperActionCard";
 import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
 import { TrendMatrixPanel } from "../components/TrendMatrixPanel";
+import { useGeminiSentiment } from "../hooks/useGeminiSentiment";
 import { useLiquidationData } from "../hooks/useLiquidationData";
 import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
 import { useOrderBook } from "../hooks/useOrderBook";
@@ -724,6 +727,7 @@ export default function Dashboard() {
 
   const [scalperMode, setScalperMode] = useState(false);
   const scalperEngine = useScalperEngine();
+  const geminiSentiment = useGeminiSentiment();
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
@@ -933,11 +937,11 @@ export default function Dashboard() {
             </>
           )}
 
-          {/* Gemini 3.0 Analysis */}
+          {/* Gemini 2.0 Flash Analysis */}
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-              Gemini 3.0 AI Engine
+              Gemini 2.0 Flash Engine
             </span>
             <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <Zap className="w-2.5 h-2.5" />
@@ -993,6 +997,24 @@ export default function Dashboard() {
             <div className="flex-1 h-px bg-border" />
           </div>
           <SmartMoneyPanel state={smartMoney} />
+
+          {/* Market Intelligence */}
+          <div className="flex items-center gap-2">
+            <Newspaper className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Market Intelligence
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+              <Zap className="w-2.5 h-2.5" />
+              GEMINI SENTIMENT
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <LiveHeadlinesSection
+            sentiment={geminiSentiment.sentiment}
+            isLoading={geminiSentiment.isLoading}
+            headlines={geminiSentiment.headlines}
+          />
 
           {/* Market Pressure Analysis */}
           <div className="flex items-center gap-2">

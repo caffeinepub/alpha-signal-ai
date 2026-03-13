@@ -129,6 +129,7 @@ export enum UserRole {
 export interface backendInterface {
     analyzeWithGemini(asset: string, price: number, high24h: number, low24h: number, rsi: number, volume: number): Promise<GeminiAnalysis>;
     researchWithGemini(ticker: string, assetType: string): Promise<ResearchReport>;
+    getSentimentFromNews(headlines: string[]): Promise<GeminiAnalysis>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     getAISignals(): Promise<Array<AISignal>>;
     getCallerUserProfile(): Promise<UserProfile | null>;

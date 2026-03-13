@@ -93,6 +93,9 @@ export default function Sidebar({ currentPath }: SidebarProps) {
           <span className="text-xs font-mono font-semibold text-bull tracking-widest uppercase">
             LIVE
           </span>
+          <span className="text-[9px] font-mono text-primary/70 ml-1 tracking-wide">
+            GEMINI 2.0 FLASH
+          </span>
           <span className="text-xs text-muted-foreground ml-auto font-mono">
             {new Date().toLocaleTimeString("en-US", { hour12: false })}
           </span>
