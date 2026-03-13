@@ -140,6 +140,18 @@ const SECTION_HEADERS = [
   "OVERALL RATING",
 ];
 
+function isNeutralOrEmpty(text: string | undefined): boolean {
+  if (!text || text.trim().length === 0 || text === "—") return true;
+  const t = text.trim().toUpperCase();
+  return (
+    t === "NEUTRAL" ||
+    t === "N/A" ||
+    t.startsWith("REPORT GENERATION FAILED") ||
+    t.startsWith("ANALYSIS IN PROGRESS") ||
+    t.startsWith("GEMINI")
+  );
+}
+
 function enrichReport(report: ResearchReport): ResearchReport {
   // If sections are already populated, nothing to do
   if (
@@ -720,7 +732,10 @@ export default function Research() {
                 accentClass="bg-blue-500"
                 borderClass="border-blue-500/20"
               >
-                {report.executiveSummary || "—"}
+                {isNeutralOrEmpty(report.executiveSummary)
+                  ? "System Re-aligning... please wait."
+                  : report.executiveSummary ||
+                    "System Re-aligning... please wait."}
               </SectionCard>
               <SectionCard
                 icon={BarChart2}
@@ -728,7 +743,10 @@ export default function Research() {
                 accentClass="bg-emerald-500"
                 borderClass="border-emerald-500/20"
               >
-                {report.fundamentalHealth || "—"}
+                {isNeutralOrEmpty(report.fundamentalHealth)
+                  ? "System Re-aligning... please wait."
+                  : report.fundamentalHealth ||
+                    "System Re-aligning... please wait."}
                 <p className="mt-3 text-[10px] font-mono text-yellow-400/70 italic">
                   ⚠ AI-estimated. Verify with official filings.
                 </p>
@@ -739,7 +757,10 @@ export default function Research() {
                 accentClass="bg-cyan-500"
                 borderClass="border-cyan-500/20"
               >
-                {report.technicalOutlook || "—"}
+                {isNeutralOrEmpty(report.technicalOutlook)
+                  ? "System Re-aligning... please wait."
+                  : report.technicalOutlook ||
+                    "System Re-aligning... please wait."}
               </SectionCard>
               <SectionCard
                 icon={Target}
@@ -747,7 +768,9 @@ export default function Research() {
                 accentClass="bg-violet-500"
                 borderClass="border-violet-500/20"
               >
-                {report.priceTargets || "—"}
+                {isNeutralOrEmpty(report.priceTargets)
+                  ? "System Re-aligning... please wait."
+                  : report.priceTargets || "System Re-aligning... please wait."}
               </SectionCard>
               <SectionCard
                 icon={ShieldAlert}
@@ -755,7 +778,10 @@ export default function Research() {
                 accentClass="bg-red-500"
                 borderClass="border-red-500/20"
               >
-                {report.riskAssessment || "—"}
+                {isNeutralOrEmpty(report.riskAssessment)
+                  ? "System Re-aligning... please wait."
+                  : report.riskAssessment ||
+                    "System Re-aligning... please wait."}
               </SectionCard>
               <SectionCard
                 icon={Zap}
@@ -763,7 +789,9 @@ export default function Research() {
                 accentClass="bg-amber-500"
                 borderClass="border-amber-500/20"
               >
-                {report.keyCatalysts || "—"}
+                {isNeutralOrEmpty(report.keyCatalysts)
+                  ? "System Re-aligning... please wait."
+                  : report.keyCatalysts || "System Re-aligning... please wait."}
               </SectionCard>
             </div>
 
