@@ -23,33 +23,15 @@ export const AISignal = IDL.Record({
   'riskLevel' : IDL.Text,
   'symbol' : IDL.Text,
 });
-export const GeminiAnalysis = IDL.Record({
-  'marketBias' : IDL.Text,
-  'confidence' : IDL.Nat,
-  'strategicInsight' : IDL.Text,
-  'signal' : IDL.Text,
-  'rawText' : IDL.Text,
-});
-export const ResearchReport = IDL.Record({
-  'ticker' : IDL.Text,
-  'assetType' : IDL.Text,
-  'executiveSummary' : IDL.Text,
-  'fundamentalHealth' : IDL.Text,
-  'technicalOutlook' : IDL.Text,
-  'priceTargets' : IDL.Text,
-  'riskAssessment' : IDL.Text,
-  'keyCatalysts' : IDL.Text,
-  'overallRating' : IDL.Text,
-  'rawText' : IDL.Text,
-});
-export const GeminiResearchResult = IDL.Record({
-  'symbol' : IDL.Text,
-  'bias' : IDL.Text,
-  'confidence' : IDL.Nat,
-  'analysis' : IDL.Text,
-  'entry' : IDL.Float64,
-  'tp' : IDL.Float64,
-  'sl' : IDL.Float64,
+export const UserAccount = IDL.Record({
+  'id' : IDL.Nat,
+  'name' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'role' : IDL.Text,
+  'email' : IDL.Text,
+  'isBanned' : IDL.Bool,
+  'passwordHash' : IDL.Text,
+  'phone' : IDL.Text,
 });
 export const UserProfile = IDL.Record({
   'name' : IDL.Text,
@@ -92,6 +74,13 @@ export const PerformanceStats = IDL.Record({
   'totalPnl' : IDL.Float64,
   'winRate' : IDL.Float64,
   'avgWin' : IDL.Float64,
+});
+export const GeminiAnalysis = IDL.Record({
+  'rawText' : IDL.Text,
+  'strategicInsight' : IDL.Text,
+  'signal' : IDL.Text,
+  'confidence' : IDL.Nat,
+  'marketBias' : IDL.Text,
 });
 export const SmcSignal = IDL.Record({
   'priceLevel' : IDL.Float64,
@@ -137,17 +126,24 @@ export const TransformationOutput = IDL.Record({
   'headers' : IDL.Vec(http_header),
 });
 
+export const AffiliateClick = IDL.Record({
+  'exchange' : IDL.Text,
+  'assetSymbol' : IDL.Text,
+  'timestamp' : IDL.Int,
+});
+
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-  'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-  'getSentimentFromNews' : IDL.Func(
-      [IDL.Vec(IDL.Text)],
-      [GeminiAnalysis],
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'banUser' : IDL.Func(
+      [IDL.Nat],
+      [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
       [],
     ),
-  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
+  'getActiveSessions' : IDL.Func([], [IDL.Nat], ['query']),
+  'getAllUsers' : IDL.Func([], [IDL.Vec(UserAccount)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCandlestickData' : IDL.Func(
@@ -163,6 +159,7 @@ export const idlService = IDL.Service({
   'getMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], ['query']),
   'getMarketSentiment' : IDL.Func([], [MarketSentiment], ['query']),
   'getPerformanceStats' : IDL.Func([], [PerformanceStats], ['query']),
+  'getSentimentFromNews' : IDL.Func([IDL.Vec(IDL.Text)], [GeminiAnalysis], []),
   'getSmcSignals' : IDL.Func([], [IDL.Vec(SmcSignal)], ['query']),
   'getTopGainers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
   'getTopLosers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
@@ -173,18 +170,86 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'loginWithEmail' : IDL.Func(
+      [IDL.Text, IDL.Text],
+      [
+        IDL.Variant({
+          'ok' : IDL.Record({
+            'token' : IDL.Text,
+            'name' : IDL.Text,
+            'role' : IDL.Text,
+          }),
+          'err' : IDL.Text,
+        }),
+      ],
+      [],
+    ),
+  'logoutSession' : IDL.Func([IDL.Text], [], []),
   'refreshMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], []),
+  'registerUser' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+      [],
+    ),
+  'requestOTP' : IDL.Func(
+      [IDL.Text],
+      [IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text })],
+      [],
+    ),
+  'researchWithGemini' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
+  'resetPasswordWithOTP' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
+      [],
+    ),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'transform' : IDL.Func(
       [TransformationInput],
       [TransformationOutput],
       ['query'],
     ),
+  'validateSession' : IDL.Func(
+      [IDL.Text],
+      [
+        IDL.Variant({
+          'ok' : IDL.Record({
+            'userId' : IDL.Nat,
+            'name' : IDL.Text,
+            'role' : IDL.Text,
+            'email' : IDL.Text,
+            'phone' : IDL.Text,
+          }),
+          'err' : IDL.Text,
+        }),
+      ],
+      [],
+    ),
+  'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
+  'verifyOTP' : IDL.Func(
+      [IDL.Text, IDL.Text],
+      [
+        IDL.Variant({
+          'ok' : IDL.Record({
+            'token' : IDL.Text,
+            'name' : IDL.Text,
+            'role' : IDL.Text,
+          }),
+          'err' : IDL.Text,
+        }),
+      ],
+      [],
+    ),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const AffiliateClick = IDL.Record({
+    'exchange' : IDL.Text,
+    'assetSymbol' : IDL.Text,
+    'timestamp' : IDL.Int,
+  });
   const UserRole = IDL.Variant({
     'admin' : IDL.Null,
     'user' : IDL.Null,
@@ -200,24 +265,15 @@ export const idlFactory = ({ IDL }) => {
     'riskLevel' : IDL.Text,
     'symbol' : IDL.Text,
   });
-  const GeminiAnalysis = IDL.Record({
-    'marketBias' : IDL.Text,
-    'confidence' : IDL.Nat,
-    'strategicInsight' : IDL.Text,
-    'signal' : IDL.Text,
-    'rawText' : IDL.Text,
-  });
-  const ResearchReport = IDL.Record({
-    'ticker' : IDL.Text,
-    'assetType' : IDL.Text,
-    'executiveSummary' : IDL.Text,
-    'fundamentalHealth' : IDL.Text,
-    'technicalOutlook' : IDL.Text,
-    'priceTargets' : IDL.Text,
-    'riskAssessment' : IDL.Text,
-    'keyCatalysts' : IDL.Text,
-    'overallRating' : IDL.Text,
-    'rawText' : IDL.Text,
+  const UserAccount = IDL.Record({
+    'id' : IDL.Nat,
+    'name' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'role' : IDL.Text,
+    'email' : IDL.Text,
+    'isBanned' : IDL.Bool,
+    'passwordHash' : IDL.Text,
+    'phone' : IDL.Text,
   });
   const UserProfile = IDL.Record({
     'name' : IDL.Text,
@@ -260,6 +316,13 @@ export const idlFactory = ({ IDL }) => {
     'totalPnl' : IDL.Float64,
     'winRate' : IDL.Float64,
     'avgWin' : IDL.Float64,
+  });
+  const GeminiAnalysis = IDL.Record({
+    'rawText' : IDL.Text,
+    'strategicInsight' : IDL.Text,
+    'signal' : IDL.Text,
+    'confidence' : IDL.Nat,
+    'marketBias' : IDL.Text,
   });
   const SmcSignal = IDL.Record({
     'priceLevel' : IDL.Float64,
@@ -305,14 +368,15 @@ export const idlFactory = ({ IDL }) => {
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-    'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-    'getSentimentFromNews' : IDL.Func(
-        [IDL.Vec(IDL.Text)],
-        [GeminiAnalysis],
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'banUser' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
         [],
       ),
-    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
+    'getActiveSessions' : IDL.Func([], [IDL.Nat], ['query']),
+    'getAllUsers' : IDL.Func([], [IDL.Vec(UserAccount)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCandlestickData' : IDL.Func(
@@ -328,6 +392,11 @@ export const idlFactory = ({ IDL }) => {
     'getMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], ['query']),
     'getMarketSentiment' : IDL.Func([], [MarketSentiment], ['query']),
     'getPerformanceStats' : IDL.Func([], [PerformanceStats], ['query']),
+    'getSentimentFromNews' : IDL.Func(
+        [IDL.Vec(IDL.Text)],
+        [GeminiAnalysis],
+        [],
+      ),
     'getSmcSignals' : IDL.Func([], [IDL.Vec(SmcSignal)], ['query']),
     'getTopGainers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
     'getTopLosers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
@@ -338,12 +407,77 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'loginWithEmail' : IDL.Func(
+        [IDL.Text, IDL.Text],
+        [
+          IDL.Variant({
+            'ok' : IDL.Record({
+              'token' : IDL.Text,
+              'name' : IDL.Text,
+              'role' : IDL.Text,
+            }),
+            'err' : IDL.Text,
+          }),
+        ],
+        [],
+      ),
+    'logoutSession' : IDL.Func([IDL.Text], [], []),
     'refreshMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], []),
+    'registerUser' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+        [],
+      ),
+    'requestOTP' : IDL.Func(
+        [IDL.Text],
+        [IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text })],
+        [],
+      ),
+    'researchWithGemini' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
+    'resetPasswordWithOTP' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
+        [],
+      ),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'transform' : IDL.Func(
         [TransformationInput],
         [TransformationOutput],
         ['query'],
+      ),
+    'validateSession' : IDL.Func(
+        [IDL.Text],
+        [
+          IDL.Variant({
+            'ok' : IDL.Record({
+              'userId' : IDL.Nat,
+              'name' : IDL.Text,
+              'role' : IDL.Text,
+              'email' : IDL.Text,
+              'phone' : IDL.Text,
+            }),
+            'err' : IDL.Text,
+          }),
+        ],
+        [],
+      ),
+    'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
+  'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
+  'verifyOTP' : IDL.Func(
+        [IDL.Text, IDL.Text],
+        [
+          IDL.Variant({
+            'ok' : IDL.Record({
+              'token' : IDL.Text,
+              'name' : IDL.Text,
+              'role' : IDL.Text,
+            }),
+            'err' : IDL.Text,
+          }),
+        ],
+        [],
       ),
   });
 };

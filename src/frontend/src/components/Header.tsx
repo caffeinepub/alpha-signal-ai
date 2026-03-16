@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { LogOut, RefreshCw, Shield, User } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface HeaderProps {
@@ -12,6 +13,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
   const [time, setTime] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -36,7 +38,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 lg:gap-3">
         <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-muted-foreground">
           <span>Updated:</span>
           <span className="text-foreground">
@@ -61,6 +63,46 @@ export default function Header({ title, subtitle }: HeaderProps) {
           />
           <span className="hidden sm:inline ml-1.5 text-xs">Refresh</span>
         </Button>
+
+        {user && (
+          <div
+            data-ocid="header.user.panel"
+            className="flex items-center gap-2 pl-2 border-l border-border/40"
+          >
+            {/* User chip */}
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 border border-border/40">
+              {user.role === "admin" ? (
+                <Shield className="w-3 h-3 text-hold" />
+              ) : (
+                <User className="w-3 h-3 text-primary" />
+              )}
+              <span className="text-xs font-medium text-foreground max-w-[100px] truncate">
+                {user.name}
+              </span>
+              <span
+                className={`text-[9px] font-bold font-mono px-1 py-0.5 rounded ${
+                  user.role === "admin"
+                    ? "bg-hold/20 text-hold"
+                    : "bg-primary/20 text-primary"
+                }`}
+              >
+                {user.role.toUpperCase()}
+              </span>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              data-ocid="header.logout_button"
+              onClick={logout}
+              className="h-8 px-2 border-bear/30 text-bear hover:bg-bear/10 hover:border-bear/50 transition-all duration-200"
+              title="Logout"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline ml-1.5 text-xs">Logout</span>
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

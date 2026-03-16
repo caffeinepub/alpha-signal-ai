@@ -26,15 +26,15 @@ export interface SmcSignal {
     symbol: string;
     signalType: string;
 }
-export interface AISignal {
-    direction: string;
-    takeProfit: number;
-    reasoning: string;
-    stopLoss: number;
-    entryPrice: number;
-    confidence: bigint;
-    riskLevel: string;
-    symbol: string;
+export interface UserAccount {
+    id: bigint;
+    name: string;
+    createdAt: bigint;
+    role: string;
+    email: string;
+    isBanned: boolean;
+    passwordHash: string;
+    phone: string;
 }
 export interface MarketAsset {
     change24h: number;
@@ -43,6 +43,29 @@ export interface MarketAsset {
     low24h: number;
     high24h: number;
     price: number;
+    symbol: string;
+}
+export interface AffiliateClick {
+  exchange: string;
+  assetSymbol: string;
+  timestamp: bigint;
+}
+
+export interface GeminiAnalysis {
+    rawText: string;
+    strategicInsight: string;
+    signal: string;
+    confidence: bigint;
+    marketBias: string;
+}
+export interface AISignal {
+    direction: string;
+    takeProfit: number;
+    reasoning: string;
+    stopLoss: number;
+    entryPrice: number;
+    confidence: bigint;
+    riskLevel: string;
     symbol: string;
 }
 export interface http_header {
@@ -102,25 +125,6 @@ export interface MarketSentiment {
     fearGreedLabel: string;
     fearGreedIndex: bigint;
 }
-export interface GeminiAnalysis {
-    marketBias: string;
-    confidence: bigint;
-    strategicInsight: string;
-    signal: string;
-    rawText: string;
-}
-export interface ResearchReport {
-    ticker: string;
-    assetType: string;
-    executiveSummary: string;
-    fundamentalHealth: string;
-    technicalOutlook: string;
-    priceTargets: string;
-    riskAssessment: string;
-    keyCatalysts: string;
-    overallRating: string;
-    rawText: string;
-}
 export enum UserRole {
     admin = "admin",
     user = "user",
@@ -128,10 +132,17 @@ export enum UserRole {
 }
 export interface backendInterface {
     analyzeWithGemini(marketData: string): Promise<string>;
-    researchWithGemini(ticker: string): Promise<string>;
-    getSentimentFromNews(headlines: string[]): Promise<GeminiAnalysis>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    banUser(userId: bigint): Promise<{
+        __kind__: "ok";
+        ok: null;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     getAISignals(): Promise<Array<AISignal>>;
+    getActiveSessions(): Promise<bigint>;
+    getAllUsers(): Promise<Array<UserAccount>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getCandlestickData(_symbol: string, _timeframe: string): Promise<Array<Candle>>;
@@ -139,13 +150,74 @@ export interface backendInterface {
     getMarketData(): Promise<Array<MarketAsset>>;
     getMarketSentiment(): Promise<MarketSentiment>;
     getPerformanceStats(): Promise<PerformanceStats>;
+    getSentimentFromNews(headlines: Array<string>): Promise<GeminiAnalysis>;
     getSmcSignals(): Promise<Array<SmcSignal>>;
     getTopGainers(): Promise<Array<Gainer>>;
     getTopLosers(): Promise<Array<Gainer>>;
     getTradeHistory(): Promise<Array<TradeRecord>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    loginWithEmail(email: string, passwordHash: string): Promise<{
+        __kind__: "ok";
+        ok: {
+            token: string;
+            name: string;
+            role: string;
+        };
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
+    logoutSession(token: string): Promise<void>;
     refreshMarketData(): Promise<Array<MarketAsset>>;
+    registerUser(name: string, email: string, phone: string, passwordHash: string): Promise<{
+        __kind__: "ok";
+        ok: bigint;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
+    requestOTP(phone: string): Promise<{
+        __kind__: "ok";
+        ok: string;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
+    researchWithGemini(symbol: string, marketType: string): Promise<string>;
+    resetPasswordWithOTP(phone: string, otp: string, newPassword: string): Promise<{
+        __kind__: "ok";
+        ok: null;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     transform(input: TransformationInput): Promise<TransformationOutput>;
+    validateSession(token: string): Promise<{
+        __kind__: "ok";
+        ok: {
+            userId: bigint;
+            name: string;
+            role: string;
+            email: string;
+            phone: string;
+        };
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
+    trackAffiliateClick(exchange: string, assetSymbol: string): Promise<void>;
+    getAffiliateClicks(): Promise<Array<AffiliateClick>>;
+    verifyOTP(phone: string, otp: string): Promise<{
+        __kind__: "ok";
+        ok: {
+            token: string;
+            name: string;
+            role: string;
+        };
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
 }

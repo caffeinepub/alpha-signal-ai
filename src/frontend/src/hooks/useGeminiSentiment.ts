@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { GeminiAnalysis } from "../backend";
-import { useActor } from "./useActor";
+import { callGeminiRaw } from "../utils/geminiClient";
 
-// Curated financial headlines used as input for Gemini sentiment analysis
 const SAMPLE_HEADLINES = [
   "Federal Reserve signals potential rate pause as inflation data cools",
   "Bitcoin surges past $85,000 on institutional ETF inflows",
@@ -16,33 +14,46 @@ const SAMPLE_HEADLINES = [
   "Tech sector leads market gains on strong earnings season",
 ];
 
-// Extended actor type to include methods defined in Candid but not in backendInterface
-interface ActorWithSentiment {
-  getSentimentFromNews(headlines: string[]): Promise<GeminiAnalysis>;
+export interface SentimentResult {
+  bias: string;
+  confidence: number;
+  signal: string;
+  insight: string;
 }
 
 export function useGeminiSentiment() {
-  const { actor, isFetching } = useActor();
-  const [sentiment, setSentiment] = useState<GeminiAnalysis | null>(null);
+  const [sentiment, setSentiment] = useState<SentimentResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const actorRef = useRef(actor);
+  const initDone = useRef(false);
 
   useEffect(() => {
-    actorRef.current = actor;
-  }, [actor]);
-
-  useEffect(() => {
-    if (isFetching || !actor) return;
+    if (initDone.current) return;
+    initDone.current = true;
 
     const run = async () => {
-      const currentActor =
-        actorRef.current as unknown as ActorWithSentiment | null;
-      if (!currentActor) return;
       setIsLoading(true);
       try {
-        const result =
-          await currentActor.getSentimentFromNews(SAMPLE_HEADLINES);
-        setSentiment(result);
+        const prompt = `Analyze these market headlines and return a JSON sentiment analysis:
+Headlines: ${SAMPLE_HEADLINES.join("; ")}
+Return ONLY a JSON object: {"bias": "BULLISH/BEARISH/NEUTRAL", "confidence": 0-100, "signal": "BUY/SELL/HOLD", "insight": "one sentence"}`;
+        const text = await callGeminiRaw(prompt);
+        if (text) {
+          try {
+            const clean = text
+              .replace(/```json/g, "")
+              .replace(/```/g, "")
+              .trim();
+            const parsed = JSON.parse(clean);
+            setSentiment(parsed);
+          } catch {
+            setSentiment({
+              bias: "NEUTRAL",
+              confidence: 50,
+              signal: "HOLD",
+              insight: text.slice(0, 200),
+            });
+          }
+        }
       } catch (e) {
         console.error("[GeminiSentiment] Failed:", e);
       } finally {
@@ -51,9 +62,9 @@ export function useGeminiSentiment() {
     };
 
     run();
-    const interval = setInterval(run, 5 * 60 * 1000); // refresh every 5 min
+    const interval = setInterval(run, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [actor, isFetching]);
+  }, []);
 
   return { sentiment, isLoading, headlines: SAMPLE_HEADLINES };
 }

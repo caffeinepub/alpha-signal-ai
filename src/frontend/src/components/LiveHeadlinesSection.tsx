@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Minus, Newspaper, TrendingDown, TrendingUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { GeminiAnalysis } from "../backend";
+import type { SentimentResult } from "../hooks/useGeminiSentiment";
 
 type CategoryTag = "MACRO" | "CRYPTO" | "EQUITY" | "COMMODITIES" | "FOREX";
 type SentimentTag = "BULLISH" | "BEARISH" | "NEUTRAL";
@@ -56,17 +56,16 @@ function getHeadlineSentiment(headline: string): SentimentTag {
 }
 
 interface Props {
-  sentiment: GeminiAnalysis | null;
+  sentiment: SentimentResult | null;
   isLoading: boolean;
   headlines: string[];
 }
 
-function SentimentMeter({ sentiment }: { sentiment: GeminiAnalysis | null }) {
-  const bias = sentiment?.marketBias ?? "Neutral";
+function SentimentMeter({ sentiment }: { sentiment: SentimentResult | null }) {
+  const bias = sentiment?.bias ?? "Neutral";
   const confidence = sentiment?.confidence ?? 50;
   const signal = sentiment?.signal ?? "NEUTRAL";
-  const insight =
-    sentiment?.strategicInsight ?? "Awaiting Gemini sentiment analysis...";
+  const insight = sentiment?.insight ?? "Awaiting Gemini sentiment analysis...";
 
   const isUp = bias.toLowerCase().includes("bull");
   const isDown = bias.toLowerCase().includes("bear");

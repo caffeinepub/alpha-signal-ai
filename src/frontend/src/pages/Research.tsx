@@ -9,13 +9,22 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ResearchReport } from "../backend";
-import { useActor } from "../hooks/useActor";
+import { callGeminiAnalysis } from "../utils/geminiClient";
 
 // ────────────────────────────────────────────────────────────
 // Types
 // ────────────────────────────────────────────────────────────
-interface ResearchReportWithMeta extends ResearchReport {
+interface ResearchReport {
+  ticker: string;
+  assetType: string;
+  executiveSummary: string;
+  fundamentalHealth: string;
+  technicalOutlook: string;
+  priceTargets: string;
+  riskAssessment: string;
+  keyCatalysts: string;
+  overallRating: string;
+  rawText: string;
   generatedAt: Date;
 }
 
@@ -81,39 +90,6 @@ const RATING_CONFIG: Record<
     border: "border-red-500/40",
   },
 };
-
-// ────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────
-
-const SECTION_HEADERS = [
-  "EXECUTIVE SUMMARY",
-  "FUNDAMENTAL HEALTH",
-  "TECHNICAL OUTLOOK",
-  "PRICE TARGETS",
-  "RISK ASSESSMENT",
-  "KEY CATALYSTS",
-  "OVERALL RATING",
-];
-
-function extractSection(
-  text: string,
-  header: string,
-  nextHeaders: string[],
-): string {
-  const upper = text.toUpperCase();
-  const start = upper.indexOf(header.toUpperCase());
-  if (start === -1) return "";
-  let end = text.length;
-  for (const next of nextHeaders) {
-    const pos = upper.indexOf(next.toUpperCase(), start + header.length);
-    if (pos !== -1 && pos < end) end = pos;
-  }
-  return text
-    .slice(start + header.length, end)
-    .replace(/^[:\s]+/, "")
-    .trim();
-}
 
 // ────────────────────────────────────────────────────────────
 // Sub-components
@@ -195,13 +171,11 @@ function LoadingProgress({ step }: { step: number }) {
 // Main page
 // ────────────────────────────────────────────────────────────
 export default function Research() {
-  const { actor } = useActor();
-
   const [ticker, setTicker] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("Stock");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [report, setReport] = useState<ResearchReportWithMeta | null>(null);
+  const [report, setReport] = useState<ResearchReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nextRefreshIn, setNextRefreshIn] = useState<number | null>(null);
 
@@ -210,7 +184,6 @@ export default function Research() {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickerRef = useRef(ticker);
   const assetTypeRef = useRef(assetType);
-  const actorRef = useRef(actor);
 
   useEffect(() => {
     tickerRef.current = ticker;
@@ -218,9 +191,6 @@ export default function Research() {
   useEffect(() => {
     assetTypeRef.current = assetType;
   }, [assetType]);
-  useEffect(() => {
-    actorRef.current = actor;
-  }, [actor]);
 
   // Loading step animation
   useEffect(() => {
@@ -273,50 +243,55 @@ export default function Research() {
     [clearAutoRefresh],
   );
 
-  // Cleanup on unmount
   useEffect(() => () => clearAutoRefresh(), [clearAutoRefresh]);
 
   const generateReport = useCallback(async (sym?: string, type?: string) => {
-    const currentActor = actorRef.current;
     const currentTicker = sym ?? tickerRef.current;
     const currentType = type ?? assetTypeRef.current;
-    if (!currentTicker.trim() || !currentActor) return;
+    if (!currentTicker.trim()) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const plainText = await currentActor.researchWithGemini(
+      const result = await callGeminiAnalysis(
         currentTicker.trim().toUpperCase(),
+        currentType || "CRYPTO",
       );
-      const fullText = plainText || "";
 
-      // Extract overall rating for the rating card (still useful metadata)
-      const getSection = (header: string) => {
-        const idx = SECTION_HEADERS.indexOf(header);
-        const remaining = SECTION_HEADERS.slice(idx + 1);
-        return extractSection(fullText, header, remaining);
-      };
-      const overallRatingRaw = getSection("OVERALL RATING");
+      // Map GeminiAnalysisResult to ResearchReport fields
+      const trend = (result.trend ?? "neutral").toUpperCase();
       let overallRating = "HOLD";
-      for (const r of ["STRONG BUY", "STRONG SELL", "BUY", "SELL", "HOLD"]) {
-        if (overallRatingRaw.toUpperCase().includes(r)) {
-          overallRating = r;
-          break;
-        }
-      }
+      if (trend.includes("BULL") || result.signal === "BUY")
+        overallRating = "BUY";
+      else if (trend.includes("BEAR") || result.signal === "SELL")
+        overallRating = "SELL";
+      else overallRating = "HOLD";
 
-      const built: ResearchReportWithMeta = {
+      const priceTargets =
+        [
+          result.support_level && result.support_level !== "N/A"
+            ? `Support: ${result.support_level}`
+            : "",
+          result.resistance_level && result.resistance_level !== "N/A"
+            ? `Resistance: ${result.resistance_level}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" | ") || "See analysis above";
+
+      const built: ResearchReport = {
         ticker: currentTicker.trim().toUpperCase(),
         assetType: currentType,
-        executiveSummary: "",
-        fundamentalHealth: "",
-        technicalOutlook: "",
-        priceTargets: "",
-        riskAssessment: "",
-        keyCatalysts: "",
+        executiveSummary: result.summary || result.insight,
+        fundamentalHealth: `Market Type: ${currentType} | Confidence: ${result.confidence}% | Bias: ${result.bias}`,
+        technicalOutlook: `Trend: ${trend} | Signal: ${result.signal} | Confidence: ${result.confidence}%`,
+        priceTargets,
+        riskAssessment: "Refer to executive summary for risk context.",
+        keyCatalysts: "Refer to executive summary for key catalysts.",
         overallRating,
-        rawText: fullText,
+        rawText:
+          result.insight + (result.summary ? `\n\n${result.summary}` : ""),
         generatedAt: new Date(),
       };
       setReport(built);
@@ -324,29 +299,21 @@ export default function Research() {
       setError(
         err instanceof Error ? err.message : "Failed to generate report",
       );
-      console.error("[Research] researchWithGemini failed:", err);
+      console.error("[Research] callGeminiAnalysis failed:", err);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    if (!ticker.trim() || !actor) return;
+    if (!ticker.trim()) return;
     clearAutoRefresh();
     setReport(null);
     await generateReport(ticker, assetType);
-    // Start 60s auto-refresh for the current ticker
     startAutoRefresh(() =>
       generateReport(tickerRef.current, assetTypeRef.current),
     );
-  }, [
-    ticker,
-    assetType,
-    actor,
-    generateReport,
-    clearAutoRefresh,
-    startAutoRefresh,
-  ]);
+  }, [ticker, assetType, generateReport, clearAutoRefresh, startAutoRefresh]);
 
   const handleQuickPick = (label: string, type: AssetType) => {
     setTicker(label);
@@ -442,7 +409,7 @@ export default function Research() {
             type="button"
             data-ocid="research.generate.button"
             onClick={handleGenerate}
-            disabled={!ticker.trim() || isLoading || !actor}
+            disabled={!ticker.trim() || isLoading}
             className="flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-bold tracking-wide hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 glow-cyan"
           >
             {isLoading ? (

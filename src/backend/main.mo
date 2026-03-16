@@ -8,6 +8,7 @@ import Time "mo:core/Time";
 import VarArray "mo:core/VarArray";
 import Order "mo:core/Order";
 import Map "mo:core/Map";
+import Iter "mo:core/Iter";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 import OutCall "http-outcalls/outcall";
@@ -16,6 +17,37 @@ actor {
   // Include authorization system
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
+
+  // Authentication Types and Data Stores
+  public type UserAccount = {
+    id : Nat;
+    name : Text;
+    email : Text;
+    phone : Text;
+    passwordHash : Text;
+    role : Text;
+    createdAt : Int;
+    isBanned : Bool;
+  };
+
+  public type Session = {
+    token : Text;
+    userId : Nat;
+    role : Text;
+    createdAt : Int;
+    expiresAt : Int;
+  };
+
+  public type OTPRecord = {
+    phone : Text;
+    otp : Text;
+    expiresAt : Int;
+  };
+
+  var nextUserId = 1;
+  let userAccounts = Map.empty<Nat, UserAccount>();
+  let sessions = Map.empty<Text, Session>();
+  let otpRecords = Map.empty<Text, OTPRecord>();
 
   // User Profile Type
   public type UserProfile = {
@@ -159,7 +191,286 @@ actor {
     timestamp = 0;
   };
 
-  // User Profile Management
+  // ───── Authentication System ────────────────────────────────────────────────
+
+  // 1. Register User - Accessible to guests (anonymous users)
+  public shared ({ caller }) func registerUser(name : Text, email : Text, phone : Text, passwordHash : Text) : async { #ok : Nat; #err : Text } {
+    if (name.size() == 0 or email.size() == 0 or phone.size() == 0 or passwordHash.size() == 0) {
+      return #err("All fields are required");
+    };
+
+    if (not isValidEmail(email)) {
+      return #err("Invalid email format");
+    };
+    if (not isValidPhone(phone)) {
+      return #err("Invalid phone number format");
+    };
+
+    switch (findUserByEmail(email)) {
+      case (?_existing) {
+        #err("Email already registered. Please use a different email or reset your password");
+      };
+      case (null) {
+        // Proceed to create new user
+        let userId = nextUserId;
+        nextUserId += 1;
+
+        let user : UserAccount = {
+          id = userId;
+          name;
+          email;
+          phone;
+          passwordHash;
+          role = "user";
+          createdAt = Time.now();
+          isBanned = false;
+        };
+
+        userAccounts.add(userId, user);
+        #ok(userId);
+      };
+    };
+  };
+
+  // 2. Login with Email/Password - Accessible to guests
+  public shared ({ caller }) func loginWithEmail(email : Text, passwordHash : Text) : async { #ok : { token : Text; role : Text; name : Text }; #err : Text } {
+    switch (findUserByEmail(email)) {
+      case (null) { #err("Invalid email or password. Please check your credentials and try again") };
+      case (?user) {
+        if (user.passwordHash != passwordHash) return #err("Invalid email or password. Please check your credentials and try again");
+        if (user.isBanned) { return #err("Account is banned. Please contact support.") };
+
+        let token = email # Time.now().toText();
+        let session : Session = {
+          token;
+          userId = user.id;
+          role = user.role;
+          createdAt = Time.now();
+          expiresAt = Time.now() + 86400_000_000_000; // 24 hours
+        };
+
+        sessions.add(token, session);
+
+        #ok({ token; role = user.role; name = user.name });
+      };
+    };
+  };
+
+  func padLeft6(text : Text) : Text {
+    var padded = text;
+    while (padded.size() < 6) {
+      padded := "0" # padded;
+    };
+    padded;
+  };
+
+  // 3. Request OTP for Phone Login - Accessible to guests
+  public shared ({ caller }) func requestOTP(phone : Text) : async { #ok : Text; #err : Text } {
+    switch (findUserByPhone(phone)) {
+      case (null) { #err("Phone number not registered. Please check your number or sign up first.") };
+      case (?_user) {
+        let otpNumber = Time.now() % 1_000_000;
+        let otp = padLeft6(otpNumber.toText());
+        let record : OTPRecord = {
+          phone;
+          otp;
+          expiresAt = Time.now() + 60_000_000_000; // 60 seconds
+        };
+        otpRecords.add(phone, record);
+        // Return OTP directly for UI testing (no SMS on ICP)
+        #ok(otp);
+      };
+    };
+  };
+
+  // 4. Verify OTP and Create Session - Accessible to guests
+  public shared ({ caller }) func verifyOTP(phone : Text, otp : Text) : async { #ok : { token : Text; role : Text; name : Text }; #err : Text } {
+    switch (otpRecords.get(phone)) {
+      case (null) {
+        #err("No valid OTP found for this phone number. Please request a new OTP.");
+      };
+      case (?record) {
+        if (Time.now() > record.expiresAt) {
+          otpRecords.remove(phone);
+          return #err("OTP has expired. Please request a new one.");
+        };
+        if (record.otp != otp) {
+          return #err("Invalid OTP. Please check your code and try again.");
+        };
+
+        otpRecords.remove(phone);
+
+        switch (findUserByPhone(phone)) {
+          case (null) { #err("User account not found. Please register first.") };
+          case (?user) {
+            if (user.isBanned) {
+              return #err("Account is banned. Please contact support.");
+            };
+
+            let token = phone # Time.now().toText();
+            let session : Session = {
+              token;
+              userId = user.id;
+              role = user.role;
+              createdAt = Time.now();
+              expiresAt = Time.now() + 86400_000_000_000;
+            };
+
+            sessions.add(token, session);
+            #ok({ token; role = user.role; name = user.name });
+          };
+        };
+      };
+    };
+  };
+
+  // 5. Password Reset (with OTP Verification) - Accessible to guests
+  public shared ({ caller }) func resetPasswordWithOTP(phone : Text, otp : Text, newPassword : Text) : async { #ok : (); #err : Text } {
+    if (newPassword.size() < 8) {
+      return #err("Password must be at least 8 characters long");
+    };
+
+    switch (otpRecords.get(phone)) {
+      case (null) {
+        #err("No valid OTP found for this phone number. Please request a new OTP.");
+      };
+      case (?record) {
+        if (Time.now() > record.expiresAt) {
+          otpRecords.remove(phone);
+          return #err("OTP has expired. Please request a new one.");
+        };
+        if (record.otp != otp) {
+          return #err("Invalid OTP. Please check your code and try again.");
+        };
+        otpRecords.remove(phone);
+
+        switch (findUserByPhone(phone)) {
+          case (null) { #err("User account not found. Please register first.") };
+          case (?user) {
+            let updatedUser : UserAccount = {
+              user with passwordHash = newPassword;
+            };
+            userAccounts.add(user.id, updatedUser);
+            #ok(());
+          };
+        };
+      };
+    };
+  };
+
+  // 6. Validate Session - Accessible to anyone with a token (no role check needed)
+  public shared ({ caller }) func validateSession(token : Text) : async { #ok : { userId : Nat; role : Text; name : Text; email : Text; phone : Text }; #err : Text } {
+    switch (sessions.get(token)) {
+      case (null) {
+        #err("Session not found. Please log in again.");
+      };
+      case (?session) {
+        if (Time.now() > session.expiresAt) {
+          sessions.remove(token);
+          return #err("Session expired. Please log in again.");
+        };
+
+        switch (userAccounts.get(session.userId)) {
+          case (null) {
+            #err("User account not found. Please contact support.");
+          };
+          case (?user) {
+            if (user.isBanned) {
+              sessions.remove(token);
+              return #err("Account is banned. Please contact support.");
+            };
+
+            #ok({
+              userId = user.id;
+              role = user.role;
+              name = user.name;
+              email = user.email;
+              phone = user.phone;
+            });
+          };
+        };
+      };
+    };
+  };
+
+  // 7. Logout Session - Should verify token ownership
+  public shared ({ caller }) func logoutSession(token : Text) : async () {
+    // Verify the session exists before removing (basic validation)
+    switch (sessions.get(token)) {
+      case (null) { /* Session doesn't exist, nothing to do */ };
+      case (?_session) {
+        sessions.remove(token);
+      };
+    };
+  };
+
+  // 8. Get All Users (Admin Only)
+  public query ({ caller }) func getAllUsers() : async [UserAccount] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can access user list");
+    };
+
+    userAccounts.values().toArray();
+  };
+
+  // 9. Ban User (Admin Only)
+  public shared ({ caller }) func banUser(userId : Nat) : async { #ok : (); #err : Text } {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      return #err("Unauthorized: Only admins can ban users");
+    };
+
+    switch (userAccounts.get(userId)) {
+      case (null) { #err("User not found") };
+      case (?user) {
+        let updatedUser : UserAccount = { user with isBanned = true };
+        userAccounts.add(user.id, updatedUser);
+        #ok(());
+      };
+    };
+  };
+
+  // Helper to find user by email
+  func findUserByEmail(email : Text) : ?UserAccount {
+    for ((_, user) in userAccounts.entries()) {
+      if (user.email == email) { return ?user };
+    };
+    null;
+  };
+
+  // Helper to find user by phone
+  func findUserByPhone(phone : Text) : ?UserAccount {
+    for ((_, user) in userAccounts.entries()) {
+      if (user.phone == phone) { return ?user };
+    };
+    null;
+  };
+
+  // Helper for valid email (basic check, not full RFC compliance)
+  func isValidEmail(email : Text) : Bool {
+    email.contains(#char '@') and email.contains(#char '.');
+  };
+
+  // Helper for valid phone (basic check, must start with + and be 10-15 digits)
+  func isValidPhone(phone : Text) : Bool {
+    let pSize = phone.size();
+    pSize >= 10 and pSize <= 15 and phone.startsWith(#text "+");
+  };
+
+  // Returns count of active (non-expired) sessions (Admin Only)
+  public query ({ caller }) func getActiveSessions() : async Nat {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can access active session count");
+    };
+    var count = 0;
+    let now = Time.now();
+    for ((_, session) in sessions.entries()) {
+      if (now <= session.expiresAt) { count += 1 };
+    };
+    count;
+  };
+
+  // ───── User Profile Management ─────────────────────────────────────────────
+
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access profiles");
@@ -181,8 +492,14 @@ actor {
     userProfiles.add(caller, profile);
   };
 
-  // Public Market Data - No authorization required. Always returns data.
-  public query func getMarketData() : async [MarketAsset] {
+  // ───── Legacy Market Data Functions ────────────────────────────────────────
+
+  public query ({ caller }) func getMarketData() : async [MarketAsset] {
+    // Market data should be accessible to authenticated users only
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access market data");
+    };
+
     if (cachedMarketData.assets.size() > 0) {
       return cachedMarketData.assets;
     };
@@ -190,7 +507,7 @@ actor {
       { symbol = "BTC"; name = "Bitcoin"; price = 68000; change24h = 2.5; volume = 500_000_000.0; high24h = 69000; low24h = 67000 },
       { symbol = "ETH"; name = "Ethereum"; price = 3600; change24h = 1.8; volume = 300_000_000.0; high24h = 3700; low24h = 3500 },
       { symbol = "XAU"; name = "Gold"; price = 2350; change24h = 0.7; volume = 100_000_000.0; high24h = 2400; low24h = 2300 },
-    ]
+    ];
   };
 
   public shared ({ caller }) func refreshMarketData() : async [MarketAsset] {
@@ -237,8 +554,13 @@ actor {
     0.0;
   };
 
-  // Public Candlestick Data
+  // ───── Candlestick Data ────────────────────────────────────────────────────
+
   public query ({ caller }) func getCandlestickData(_symbol : Text, _timeframe : Text) : async [Candle] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access candlestick data");
+    };
+
     let now = Time.now() / 1000000000;
     let candles = VarArray.repeat<Candle>({
       timestamp = now;
@@ -263,6 +585,8 @@ actor {
 
     candles.toArray();
   };
+
+  // ───── AI Signals ──────────────────────────────────────────────────────────
 
   public query ({ caller }) func getAISignals() : async [AISignal] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
@@ -303,6 +627,16 @@ actor {
     ];
   };
 
+  // ───── Liquidation Data ────────────────────────────────────────────────────
+
+  func safeSubNat(a : Nat, b : Nat) : Nat {
+    if (a < b) { 0 : Nat } else { a - b };
+  };
+
+  func floatFromNat(n : Nat) : Float {
+    n.toInt().toFloat();
+  };
+
   public query ({ caller }) func getLiquidationData(_symbol : Text) : async [LiquidationZone] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access liquidation data");
@@ -323,7 +657,7 @@ actor {
       zones[zoneIndex] := {
         priceLevel = price;
         longLiquidations = zoneIndex.toFloat() * 10_000.0;
-        shortLiquidations = (20 - zoneIndex).toFloat() * 7_000.0;
+        shortLiquidations = floatFromNat(safeSubNat(20, zoneIndex)) * 7000.0;
         intensity = Nat.min(zoneIndex * 10, 100);
       };
       zoneIndex += 1;
@@ -332,7 +666,13 @@ actor {
     zones.toArray();
   };
 
+  // ───── Market Sentiment ────────────────────────────────────────────────────
+
   public query ({ caller }) func getMarketSentiment() : async MarketSentiment {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access market sentiment");
+    };
+
     {
       fearGreedIndex = 66;
       fearGreedLabel = "Greed";
@@ -340,7 +680,13 @@ actor {
     };
   };
 
+  // ───── Top Gainers & Losers ────────────────────────────────────────────────
+
   public query ({ caller }) func getTopGainers() : async [Gainer] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access top gainers");
+    };
+
     let gainers : [Gainer] = [
       { symbol = "SOL"; name = "Solana"; price = 150; changePercent = 8.5 },
       { symbol = "ADA"; name = "Cardano"; price = 1.3; changePercent = 7.2 },
@@ -352,6 +698,10 @@ actor {
   };
 
   public query ({ caller }) func getTopLosers() : async [Gainer] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access top losers");
+    };
+
     let losers : [Gainer] = [
       { symbol = "XRP"; name = "Ripple"; price = 0.6; changePercent = -4.1 },
       { symbol = "MATIC"; name = "Polygon"; price = 1.1; changePercent = -3.8 },
@@ -361,6 +711,8 @@ actor {
     ];
     losers.sort();
   };
+
+  // ───── Performance Stats and Trade History ─────────────────────────────────
 
   public query ({ caller }) func getPerformanceStats() : async PerformanceStats {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
@@ -395,7 +747,7 @@ actor {
     }, 20);
 
     for (i in Nat.range(0, 20)) {
-      let id = (20 - i);
+      let id : Nat = if (i < 20) { 20 - i } else { 1 };
       trades[i] := {
         id;
         symbol = if (id % 3 == 0) { "BTC" } else if (id % 3 == 1) { "ETH" } else { "XAU" };
@@ -631,8 +983,12 @@ actor {
   // ─── Gemini 2.0 Flash Analysis ────────────────────────────────────────────
   // All AI analysis uses gemini-2.0-flash exclusively.
 
-  public shared func analyzeWithGemini(marketData : Text) : async Text {
-    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+  public shared ({ caller }) func analyzeWithGemini(marketData : Text) : async Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access AI analysis");
+    };
+
+    let apiKey = "AIzaSyDPrQUkncKjaT6DcthPtdlzJCp9qb5-zOA";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
     let sysInstruction = "You are a Master Institutional Trader specializing in Smart Money Concepts (SMC). Analyze the provided market data. Return your analysis in plain text using EXACTLY this format (no JSON, no markdown):\nBIAS: [BULLISH or BEARISH or NEUTRAL]\nCONFIDENCE: [0-100]\nSIGNAL: [STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL]\nINSIGHT: [one concise sentence about the 5-minute scalping setup]";
@@ -736,22 +1092,23 @@ actor {
     };
   };
 
-  public shared func researchWithGemini(ticker : Text) : async Text {
-    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+  public shared ({ caller }) func researchWithGemini(symbol : Text, marketType : Text) : async Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access AI research");
+    };
+
+    let apiKey = "AIzaSyDPrQUkncKjaT6DcthPtdlzJCp9qb5-zOA";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
-    let sysInstruction = "You are a senior institutional research analyst. Provide a comprehensive research report in plain text. Structure your response using EXACTLY these section headers (each on its own line): EXECUTIVE SUMMARY, FUNDAMENTAL HEALTH, TECHNICAL OUTLOOK, PRICE TARGETS, RISK ASSESSMENT, KEY CATALYSTS, OVERALL RATING. Each section: 3-5 sentences. PRICE TARGETS: include Bear/Base/Bull scenarios with numbers. OVERALL RATING: STRONG BUY, BUY, HOLD, SELL, or STRONG SELL followed by rationale. No markdown, no bullet points with -.";
-
-    let userMsg = "Generate a comprehensive institutional research report for " # ticker # ". Use your training knowledge for estimates. Be direct and specific with price targets.";
+    let prompt = "Analyze " # symbol # " for " # marketType # " market. Give trend (bullish/bearish/neutral), prediction, confidence percentage, support level, resistance level, and 2-line summary. Respond in JSON format only with these fields: trend, prediction, confidence, support, resistance, summary.";
 
     let safetySettings = "[{\"category\":\"HARM_CATEGORY_HARASSMENT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_HATE_SPEECH\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\"threshold\":\"BLOCK_NONE\"},{\"category\":\"HARM_CATEGORY_DANGEROUS_CONTENT\",\"threshold\":\"BLOCK_NONE\"}]";
 
-    let generationConfig = "{\"temperature\":0.3,\"maxOutputTokens\":1500}";
+    let generationConfig = "{\"temperature\":0.3}";
 
-    let reqBody = "{\"system_instruction\":{\"parts\":[{\"text\":\"" # sysInstruction # "\"}]},"
-      # "\"safetySettings\":" # safetySettings # ","
+    let reqBody = "{\"safetySettings\":" # safetySettings # ","
       # "\"generationConfig\":" # generationConfig # ","
-      # "\"contents\":[{\"parts\":[{\"text\":\"" # userMsg # "\"}]}]}";
+      # "\"contents\":[{\"parts\":[{\"text\":\"" # prompt # "\"}]}]}";
 
     let hdrs : [OutCall.Header] = [
       { name = "Content-Type"; value = "application/json" },
@@ -761,18 +1118,22 @@ actor {
       let responseText = await OutCall.httpPostRequest(url, hdrs, reqBody, transform);
       let content = extractGeminiContent(responseText);
       if (content.size() == 0) {
-        return "EXECUTIVE SUMMARY\nAI analysis temporarily unavailable for " # ticker # ". Please try again.\n\nOVERALL RATING\nNEUTRAL - Insufficient data.";
+        return "{\"error\":\"Analysis Unavailable - Please retry\",\"symbol\":\"" # symbol # "\",\"trend\":\"neutral\",\"confidence\":0,\"summary\":\"Analysis Unavailable - Please retry\"}";
       };
       content;
     } catch (_) {
-      "EXECUTIVE SUMMARY\nAI analysis temporarily unavailable for " # ticker # ". System re-aligning, please wait.\n\nOVERALL RATING\nNEUTRAL - Service temporarily unavailable.";
+      "{\"error\":\"Analysis Unavailable - Please retry\",\"symbol\":\"" # symbol # "\",\"trend\":\"neutral\",\"confidence\":0,\"summary\":\"Analysis Unavailable - Please retry\"}";
     };
   };
 
   // ─── Gemini 2.0 Flash Sentiment Analysis from News Headlines ─────────────
 
-  public shared func getSentimentFromNews(headlines : [Text]) : async GeminiAnalysis {
-    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+  public shared ({ caller }) func getSentimentFromNews(headlines : [Text]) : async GeminiAnalysis {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access sentiment analysis");
+    };
+
+    let apiKey = "AIzaSyDPrQUkncKjaT6DcthPtdlzJCp9qb5-zOA";
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" # apiKey;
 
     let sysInstruction = "You are a senior market sentiment analyst. Your response must be a single JSON object with NO markdown, NO code blocks, and NO extra text. If you add anything else, the system breaks. Return exactly: {\"bias\":\"Bullish or Bearish or Neutral\",\"confidence\":75,\"signal\":\"STRONG BUY or BUY or NEUTRAL or SELL or STRONG SELL\",\"insight\":\"one concise sentence summarizing market sentiment\"}";
@@ -819,5 +1180,35 @@ actor {
       };
     };
   };
+
+
+  // ─── Affiliate Click Tracking ─────────────────────────────────────────────
+
+  public type AffiliateClick = {
+    exchange : Text;
+    assetSymbol : Text;
+    timestamp : Int;
+  };
+
+  let affiliateClickStore = Map.empty<Nat, AffiliateClick>();
+  var nextAffiliateId = 0;
+
+  public shared ({ caller }) func trackAffiliateClick(exchange : Text, assetSymbol : Text) : async () {
+    let click : AffiliateClick = {
+      exchange;
+      assetSymbol;
+      timestamp = Time.now();
+    };
+    affiliateClickStore.add(nextAffiliateId, click);
+    nextAffiliateId += 1;
+  };
+
+  public query ({ caller }) func getAffiliateClicks() : async [AffiliateClick] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can view affiliate clicks");
+    };
+    affiliateClickStore.values().toArray();
+  };
+
 
 };

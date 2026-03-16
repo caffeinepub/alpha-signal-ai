@@ -35,11 +35,11 @@ export interface Gainer {
   'symbol' : string,
 }
 export interface GeminiAnalysis {
-  'marketBias' : string,
-  'confidence' : bigint,
+  'rawText' : string,
   'strategicInsight' : string,
   'signal' : string,
-  'rawText' : string,
+  'confidence' : bigint,
+  'marketBias' : string,
 }
 export interface LiquidationZone {
   'priceLevel' : number,
@@ -98,6 +98,16 @@ export interface TransformationOutput {
   'body' : Uint8Array,
   'headers' : Array<http_header>,
 }
+export interface UserAccount {
+  'id' : bigint,
+  'name' : string,
+  'createdAt' : bigint,
+  'role' : string,
+  'email' : string,
+  'isBanned' : boolean,
+  'passwordHash' : string,
+  'phone' : string,
+}
 export interface UserProfile {
   'name' : string,
   'subscriptionTier' : string,
@@ -112,26 +122,20 @@ export interface http_request_result {
   'body' : Uint8Array,
   'headers' : Array<http_header>,
 }
-export interface ResearchReport {
-  'ticker' : string,
-  'assetType' : string,
-  'executiveSummary' : string,
-  'fundamentalHealth' : string,
-  'technicalOutlook' : string,
-  'priceTargets' : string,
-  'riskAssessment' : string,
-  'keyCatalysts' : string,
-  'overallRating' : string,
-  'rawText' : string,
+export interface AffiliateClick {
+  'exchange' : string,
+  'assetSymbol' : string,
+  'timestamp' : bigint,
 }
 
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'analyzeWithGemini' : ActorMethod<[string], string>,
-  'researchWithGemini' : ActorMethod<[string], string>,
-  'getSentimentFromNews' : ActorMethod<[Array<string>], GeminiAnalysis>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'banUser' : ActorMethod<[bigint], { 'ok' : null } | { 'err' : string }>,
   'getAISignals' : ActorMethod<[], Array<AISignal>>,
+  'getActiveSessions' : ActorMethod<[], bigint>,
+  'getAllUsers' : ActorMethod<[], Array<UserAccount>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCandlestickData' : ActorMethod<[string, string], Array<Candle>>,
@@ -139,15 +143,54 @@ export interface _SERVICE {
   'getMarketData' : ActorMethod<[], Array<MarketAsset>>,
   'getMarketSentiment' : ActorMethod<[], MarketSentiment>,
   'getPerformanceStats' : ActorMethod<[], PerformanceStats>,
+  'getSentimentFromNews' : ActorMethod<[Array<string>], GeminiAnalysis>,
   'getSmcSignals' : ActorMethod<[], Array<SmcSignal>>,
   'getTopGainers' : ActorMethod<[], Array<Gainer>>,
   'getTopLosers' : ActorMethod<[], Array<Gainer>>,
   'getTradeHistory' : ActorMethod<[], Array<TradeRecord>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'loginWithEmail' : ActorMethod<
+    [string, string],
+    { 'ok' : { 'token' : string, 'name' : string, 'role' : string } } |
+      { 'err' : string }
+  >,
+  'logoutSession' : ActorMethod<[string], undefined>,
   'refreshMarketData' : ActorMethod<[], Array<MarketAsset>>,
+  'registerUser' : ActorMethod<
+    [string, string, string, string],
+    { 'ok' : bigint } |
+      { 'err' : string }
+  >,
+  'requestOTP' : ActorMethod<[string], { 'ok' : string } | { 'err' : string }>,
+  'researchWithGemini' : ActorMethod<[string, string], string>,
+  'resetPasswordWithOTP' : ActorMethod<
+    [string, string, string],
+    { 'ok' : null } |
+      { 'err' : string }
+  >,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
+  'validateSession' : ActorMethod<
+    [string],
+    {
+        'ok' : {
+          'userId' : bigint,
+          'name' : string,
+          'role' : string,
+          'email' : string,
+          'phone' : string,
+        }
+      } |
+      { 'err' : string }
+  >,
+  'trackAffiliateClick' : ActorMethod<[string, string], undefined>,
+  'getAffiliateClicks' : ActorMethod<[], Array<AffiliateClick>>,
+  'verifyOTP' : ActorMethod<
+    [string, string],
+    { 'ok' : { 'token' : string, 'name' : string, 'role' : string } } |
+      { 'err' : string }
+  >,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   Brain,
+  Calendar,
   DollarSign,
   LayersIcon,
   LayoutDashboard,
@@ -14,8 +15,14 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { AdSlot } from "../components/AdSlot";
+import { AffiliateLinksSection } from "../components/AffiliateLinksSection";
 import { BacktestPerformancePanel } from "../components/BacktestPerformancePanel";
 import { CleanSignalCard } from "../components/CleanSignalCard";
+import { ProfessionalEconomicCalendar } from "../components/ProfessionalEconomicCalendar";
+import { SponsoredToolsSection } from "../components/SponsoredToolsSection";
+import { TelegramFunnelButton } from "../components/TelegramFunnelButton";
+
 import { GeminiAnalysisPanel } from "../components/GeminiAnalysisPanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
 import { LiveHeadlinesSection } from "../components/LiveHeadlinesSection";
@@ -40,10 +47,6 @@ import { useScalperEngine } from "../hooks/useScalperEngine";
 import { useSmartMoneyFlow } from "../hooks/useSmartMoneyFlow";
 
 // ─── Connection status logic ─────────────────────────────────────────────────
-// ONLINE  : tick received within last 10 seconds
-// CONNECTING: no tick yet but WebSocket is connecting
-// OFFLINE : no tick for more than 30 seconds
-
 type AssetStatus = "ONLINE" | "CONNECTING" | "OFFLINE";
 
 function getAssetStatus(
@@ -58,7 +61,7 @@ function getAssetStatus(
   const elapsed = Date.now() - lastTick;
   if (elapsed <= 10_000) return "ONLINE";
   if (elapsed >= 30_000) return "OFFLINE";
-  return "CONNECTING"; // between 10s and 30s — amber
+  return "CONNECTING";
 }
 
 function AssetStatusBadge({
@@ -147,7 +150,6 @@ function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
 
   return (
     <div className="trading-card p-4">
-      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Brain className="w-3.5 h-3.5 text-primary" />
@@ -162,7 +164,6 @@ function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
         </span>
       </div>
 
-      {/* Prediction label */}
       <div className={`rounded-md px-3 py-2 mb-3 border text-center ${dirBg}`}>
         <div className={`text-sm font-bold font-mono ${dirColor}`}>
           {prediction.prediction}
@@ -172,7 +173,6 @@ function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
         </div>
       </div>
 
-      {/* Bullish bar */}
       <div className="mb-2">
         <div className="flex justify-between text-[10px] mb-1">
           <span className="text-bull font-semibold">Bullish</span>
@@ -190,7 +190,6 @@ function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
         </div>
       </div>
 
-      {/* Bearish bar */}
       <div className="mb-3">
         <div className="flex justify-between text-[10px] mb-1">
           <span className="text-bear font-semibold">Bearish</span>
@@ -208,7 +207,6 @@ function PredictionMeter({ prediction }: { prediction: AssetPrediction }) {
         </div>
       </div>
 
-      {/* Confidence */}
       <div className="flex items-center justify-between text-[10px] pt-2 border-t border-border/40">
         <span className="text-muted-foreground flex items-center gap-1">
           <Zap className="w-2.5 h-2.5" />
@@ -266,7 +264,6 @@ function PriceCard({
 
   return (
     <div className="trading-card p-4 hover:border-primary/40 transition-all duration-300 group">
-      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
@@ -292,7 +289,6 @@ function PriceCard({
         </div>
       </div>
 
-      {/* Price */}
       {!hidePrice && (
         <div className="mb-3">
           <div className="text-2xl font-bold font-mono text-foreground group-hover:text-primary transition-colors">
@@ -301,7 +297,6 @@ function PriceCard({
         </div>
       )}
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-2 text-[10px]">
         <div>
           <div className="text-muted-foreground">Volume</div>
@@ -323,7 +318,6 @@ function PriceCard({
         </div>
       </div>
 
-      {/* Progress bar for position in range */}
       <div className="mt-3">
         <div className="h-1 bg-secondary rounded-full overflow-hidden">
           <div
@@ -345,7 +339,6 @@ function PriceCard({
   );
 }
 
-// ─── XAU Last Updated Badge ──────────────────────────────────────────────────
 function XauLastUpdatedBadge({ lastUpdated }: { lastUpdated: Date | null }) {
   const [secsAgo, setSecsAgo] = useState<number | null>(null);
 
@@ -378,11 +371,11 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
   const angle = (value / 100) * 180 - 90;
 
   const getZoneColor = (v: number) => {
-    if (v <= 20) return "oklch(0.60 0.22 25)"; // Extreme Fear
-    if (v <= 40) return "oklch(0.65 0.20 40)"; // Fear
-    if (v <= 60) return "oklch(0.75 0.18 80)"; // Neutral
-    if (v <= 80) return "oklch(0.65 0.18 145)"; // Greed
-    return "oklch(0.55 0.20 145)"; // Extreme Greed
+    if (v <= 20) return "oklch(0.60 0.22 25)";
+    if (v <= 40) return "oklch(0.65 0.20 40)";
+    if (v <= 60) return "oklch(0.75 0.18 80)";
+    if (v <= 80) return "oklch(0.65 0.18 145)";
+    return "oklch(0.55 0.20 145)";
   };
 
   const color = getZoneColor(value);
@@ -396,8 +389,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
       <div className="relative w-48 h-28">
         <svg viewBox="0 0 200 120" className="w-full h-full">
           <title>Fear and Greed gauge</title>
-          {/* Background arc zones */}
-          {/* Extreme Fear */}
           <path
             d="M 20 100 A 80 80 0 0 1 44 43"
             fill="none"
@@ -405,7 +396,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             strokeWidth="12"
             strokeLinecap="round"
           />
-          {/* Fear */}
           <path
             d="M 44 43 A 80 80 0 0 1 80 17"
             fill="none"
@@ -413,7 +403,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             strokeWidth="12"
             strokeLinecap="round"
           />
-          {/* Neutral */}
           <path
             d="M 80 17 A 80 80 0 0 1 120 17"
             fill="none"
@@ -421,7 +410,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             strokeWidth="12"
             strokeLinecap="round"
           />
-          {/* Greed */}
           <path
             d="M 120 17 A 80 80 0 0 1 156 43"
             fill="none"
@@ -429,7 +417,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             strokeWidth="12"
             strokeLinecap="round"
           />
-          {/* Extreme Greed */}
           <path
             d="M 156 43 A 80 80 0 0 1 180 100"
             fill="none"
@@ -438,7 +425,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             strokeLinecap="round"
           />
 
-          {/* Value arc */}
           {value > 0 && (
             <path
               d="M 20 100 A 80 80 0 0 1 100 20"
@@ -451,7 +437,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             />
           )}
 
-          {/* Needle */}
           <g transform={`rotate(${angle}, 100, 100)`}>
             <line
               x1="100"
@@ -466,7 +451,6 @@ function FearGreedGauge({ value, label }: { value: number; label: string }) {
             <circle cx="100" cy="100" r="3" fill="oklch(0.12 0.02 250)" />
           </g>
 
-          {/* Value text */}
           <text
             x="100"
             y="112"
@@ -537,7 +521,6 @@ function SignalWidget({
         </span>
       </div>
 
-      {/* Confidence */}
       <div className="mb-4">
         <div className="flex justify-between text-xs mb-1">
           <span className="text-muted-foreground">Confidence</span>
@@ -559,7 +542,6 @@ function SignalWidget({
         </div>
       </div>
 
-      {/* Levels */}
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className="bg-secondary/50 rounded p-2 text-center">
           <div className="text-[9px] text-muted-foreground uppercase tracking-wide">
@@ -720,7 +702,6 @@ export default function Dashboard() {
   const btcPrediction = predictions.find((p) => p.symbol === "BTC");
   const xauPrediction = predictions.find((p) => p.symbol === "XAU");
 
-  // Per-asset connection status
   const btcStatus = getAssetStatus("BTC", lastTickTimes, isConnecting);
   const ethStatus = getAssetStatus("ETH", lastTickTimes, isConnecting);
   const xauStatus = getAssetStatus("XAU", lastTickTimes, isConnecting);
@@ -738,7 +719,6 @@ export default function Dashboard() {
           Market Overview
         </span>
         <div className="flex-1 h-px bg-border hidden sm:block" />
-        {/* Per-asset live status badges */}
         <div
           className="flex items-center gap-3 shrink-0 flex-wrap"
           data-ocid="market.panel"
@@ -759,7 +739,6 @@ export default function Dashboard() {
             marketClosed={xauMarketClosed}
             liveLabel="XAU MARKET OPEN"
           />
-          {/* Overall stream label */}
           {btcStatus === "ONLINE" && (
             <span className="text-[9px] text-muted-foreground font-mono">
               {xauStatus === "ONLINE" && !xauMarketClosed
@@ -769,7 +748,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Scalper Mode Toggle */}
         <button
           type="button"
           data-ocid="dashboard.scalper_toggle"
@@ -784,6 +762,9 @@ export default function Dashboard() {
           {scalperMode ? "⚡ Scalper View" : "Classic View"}
         </button>
       </div>
+
+      {/* Top Banner Ad */}
+      <AdSlot placement="banner" />
 
       {/* Price Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -815,6 +796,7 @@ export default function Dashboard() {
                       Connecting to live feed...
                     </div>
                   )}
+                  <AffiliateLinksSection assetSymbol={asset.symbol} />
                 </PriceCard>
               );
             })}
@@ -823,7 +805,6 @@ export default function Dashboard() {
       {/* ─── SCALPER MODE ─────────────────────────────────────────────── */}
       {scalperMode && (
         <>
-          {/* ─── CLEAN SIGNAL CARDS ─── */}
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-emerald-400" />
             <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
@@ -847,10 +828,8 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Divider */}
           <div className="border-t border-white/5" />
 
-          {/* ─── DETAILED SCALPER CARDS ─── */}
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-emerald-400" />
             <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">
@@ -879,9 +858,7 @@ export default function Dashboard() {
       {/* ─── CLASSIC MODE ─────────────────────────────────────────────── */}
       {!scalperMode && (
         <>
-          {/* Middle Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* AI Signal Widget */}
             {signalsLoading ? (
               <div className="trading-card p-4">
                 <Skeleton className="h-48 w-full bg-secondary" />
@@ -899,7 +876,6 @@ export default function Dashboard() {
               />
             ) : null}
 
-            {/* Fear & Greed */}
             {sentimentLoading ? (
               <div className="trading-card p-4">
                 <Skeleton className="h-48 w-full bg-secondary" />
@@ -912,7 +888,6 @@ export default function Dashboard() {
             ) : null}
           </div>
 
-          {/* AI Prediction Meters */}
           {(btcPrediction || xauPrediction) && (
             <>
               <div className="flex items-center gap-2">
@@ -937,7 +912,6 @@ export default function Dashboard() {
             </>
           )}
 
-          {/* Gemini 2.0 Flash Analysis */}
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -956,7 +930,6 @@ export default function Dashboard() {
             onRefresh={geminiEngine.triggerAnalysis}
           />
 
-          {/* Backtesting Performance */}
           <div className="flex items-center gap-2">
             <Trophy className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -970,7 +943,6 @@ export default function Dashboard() {
           </div>
           <BacktestPerformancePanel />
 
-          {/* Multi-Timeframe Analysis */}
           <div className="flex items-center gap-2">
             <LayersIcon className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -984,7 +956,6 @@ export default function Dashboard() {
           </div>
           <TrendMatrixPanel />
 
-          {/* Smart Money Flow */}
           <div className="flex items-center gap-2 flex-wrap">
             <BarChart3 className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -998,7 +969,6 @@ export default function Dashboard() {
           </div>
           <SmartMoneyPanel state={smartMoney} />
 
-          {/* Market Intelligence */}
           <div className="flex items-center gap-2">
             <Newspaper className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -1016,7 +986,31 @@ export default function Dashboard() {
             headlines={geminiSentiment.headlines}
           />
 
-          {/* Market Pressure Analysis */}
+          {/* Telegram Funnel */}
+          <div className="flex justify-center py-2">
+            <TelegramFunnelButton />
+          </div>
+
+          {/* Sponsored Tools */}
+          <SponsoredToolsSection />
+
+          {/* Inline Ad */}
+          <AdSlot placement="inline" />
+
+          {/* Economic Calendar */}
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+              Economic Calendar
+            </span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+              <Zap className="w-2.5 h-2.5" />
+              MACRO EVENTS
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <ProfessionalEconomicCalendar />
+
           <div className="flex items-center gap-2">
             <LayoutDashboard className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -1034,7 +1028,6 @@ export default function Dashboard() {
             <LiquidationCascadePanel state={liquidation} />
           </div>
 
-          {/* Gainers / Losers */}
           <div className="flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
