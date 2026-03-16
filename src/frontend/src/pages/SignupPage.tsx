@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useActor } from "@/hooks/useActor";
-import { AuthService } from "@/services/AuthService";
+import { hashPassword } from "@/hooks/useAuth";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -36,6 +36,7 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!actor) return;
     setError("");
 
     if (!name.trim() || !email.trim() || !phone.trim() || !password) {
@@ -53,16 +54,21 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      const service = new AuthService(actor);
-      await service.register(name.trim(), email.trim(), phone.trim(), password);
-      setSuccess(true);
-      setTimeout(() => navigate({ to: "/login" }), 2000);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Authentication server unavailable. Please try again.",
+      const hash = await hashPassword(password);
+      const result = await actor.registerUser(
+        name.trim(),
+        email.trim(),
+        phone.trim(),
+        hash,
       );
+      if (result.__kind__ === "ok") {
+        setSuccess(true);
+        setTimeout(() => navigate({ to: "/login" }), 2000);
+      } else {
+        setError(result.err);
+      }
+    } catch {
+      setError("Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -250,7 +256,7 @@ export default function SignupPage() {
 
             <Button
               type="submit"
-              disabled={loading || success}
+              disabled={loading || success || !actor}
               data-ocid="signup.submit_button"
               className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-semibold text-sm h-10 glow-cyan transition-all duration-200 mt-2"
             >

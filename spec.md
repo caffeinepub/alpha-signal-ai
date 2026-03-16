@@ -1,31 +1,36 @@
 # Alpha Signal AI
 
 ## Current State
-A production trading dashboard with BTC, ETH, XAU live data, AI signal engine, Scalper Mode, Gemini 2.0 Flash analysis panel, Economic Calendar, and Live Headlines. Navigation has: Dashboard, Charts, AI Signals, Liquidation, Performance.
+The Economic Calendar exists as `EconomicCalendarPanel.tsx` with basic FMP API fetch, static fallback events, impact color coding, filter tabs, and Gemini AI explanation per event. It lacks: real-time section grouping (Upcoming/Live/Completed), countdown timers per event, 5-minute auto-refresh, and a polished card+table layout.
 
 ## Requested Changes (Diff)
 
 ### Add
-- New `/research` route and `Research.tsx` page
-- "Research" nav item in Sidebar (after Performance) with a `FlaskConical` or `BookOpen` icon
-- `researchWithGemini` backend function in main.mo that uses `gemini-1.5-pro` model for deep-dive reports
-- Research report sections: Executive Summary, Fundamental Health (AI-estimated), Technical Outlook, Price Targets (Bear/Base/Bull), Risk Assessment, Key Catalysts
-- Asset search input supporting any ticker plus quick-pick presets: NVDA, AAPL, BTC, ETH, XAU/USD
-- Asset type selector: Stock | Crypto | Forex
-- AI disclaimer banner on all AI-generated fundamental data
-- Loading state with animated progress during report generation
-- GEMINI-1.5-PRO model badge
+- `ProfessionalEconomicCalendar.tsx` — new component replacing/superseding EconomicCalendarPanel
+- Three sections: Upcoming Events, Live Events (starting within 15 min), Completed Events (past)
+- Countdown timer per event showing `XXh XXm` or `XXm XXs` for near events
+- 5-minute auto-refresh interval (down from 10 min)
+- Live countdown ticking every second
+- Section headers with event counts
+- Event cards in table layout with all required fields
 
 ### Modify
-- `Sidebar.tsx`: add Research nav entry
-- `App.tsx`: register `/research` route and add to PAGE_META
-- `main.mo`: add `researchWithGemini` function with gemini-1.5-pro endpoint
+- `EconomicCalendarPanel.tsx` — replace its usage on Dashboard with the new component
+- Auto-refresh interval: 600s → 300s
+- Impact colors: high=red, medium=yellow, low=blue (already present, kept)
+- Gemini AI analysis per event (already present, enhanced inline)
 
 ### Remove
-- Nothing removed
+- Static STATIC_EVENTS fallback — keep only the API call with a graceful error message if API fails
 
 ## Implementation Plan
-1. Add `researchWithGemini(ticker, assetType)` to main.mo — calls gemini-1.5-pro with a structured deep-analysis prompt, returns a multi-section report as text
-2. Create `Research.tsx` — search UI, quick picks, report generation, section cards, disclaimer
-3. Update Sidebar.tsx with Research nav item
-4. Update App.tsx with Research route and PAGE_META entry
+1. Create `src/frontend/src/components/ProfessionalEconomicCalendar.tsx`
+   - Fetch from FMP economic calendar API (demo key), fall back gracefully to error message
+   - Parse event datetime, compare to `new Date()` to bucket into Upcoming/Live/Completed
+   - Countdown timer with `setInterval` every second
+   - 5-minute auto-refresh for data
+   - Three collapsible sections with counts
+   - Table layout with: Event, Country, Currency, Date, Time, Impact badge, Previous, Forecast, Actual, Countdown, AI button
+   - Gemini AI analysis inline (same `callGeminiRaw` pattern)
+   - Error state: "Economic calendar data temporarily unavailable."
+2. Update Dashboard to use `ProfessionalEconomicCalendar` instead of `EconomicCalendarPanel`

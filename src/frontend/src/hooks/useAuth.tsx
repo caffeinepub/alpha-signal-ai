@@ -1,5 +1,4 @@
 import { useActor } from "@/hooks/useActor";
-import { AuthService } from "@/services/AuthService";
 import { createContext, useContext, useEffect, useState } from "react";
 
 export interface AuthUser {
@@ -68,16 +67,14 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        try {
-          const service = new AuthService(actor);
-          const { name, role, email, phone } = await service.validateSession(
-            session.token,
-          );
+        const result = await actor.validateSession(session.token);
+        if (result.__kind__ === "ok") {
+          const { name, role, email, phone } = result.ok;
           setState({
             user: { token: session.token, name, role, email, phone },
             isLoading: false,
           });
-        } catch {
+        } else {
           localStorage.removeItem(SESSION_KEY);
           setState({ user: null, isLoading: false });
         }
@@ -111,8 +108,7 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
     if (raw && actor) {
       try {
         const { token } = JSON.parse(raw);
-        const service = new AuthService(actor);
-        await service.logout(token);
+        await actor.logoutSession(token);
       } catch {}
     }
     localStorage.removeItem(SESSION_KEY);

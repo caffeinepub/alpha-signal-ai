@@ -3,8 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActor } from "@/hooks/useActor";
-import { useAuth } from "@/hooks/useAuth";
-import { AuthService } from "@/services/AuthService";
+import { hashPassword, useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -41,25 +40,28 @@ export default function LoginPage() {
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!actor) return;
     setEmailError("");
     setEmailLoading(true);
     try {
-      const service = new AuthService(actor);
-      const { token, role, name } = await service.login(email, password);
-      login(token, role, name, email);
-      navigate({ to: role === "admin" ? "/admin" : "/" });
-    } catch (e) {
-      setEmailError(
-        e instanceof Error
-          ? e.message
-          : "Authentication server unavailable. Please try again.",
-      );
+      const hash = await hashPassword(password);
+      const result = await actor.loginWithEmail(email, hash);
+      if (result.__kind__ === "ok") {
+        const { token, role, name } = result.ok;
+        login(token, role, name, email);
+        navigate({ to: role === "admin" ? "/admin" : "/" });
+      } else {
+        setEmailError(result.err);
+      }
+    } catch {
+      setEmailError("Connection error. Please try again.");
     } finally {
       setEmailLoading(false);
     }
   };
 
   const handleSendOtp = async () => {
+    if (!actor) return;
     if (!phone.trim()) {
       setOtpError("Please enter a valid phone number.");
       return;
@@ -67,23 +69,22 @@ export default function LoginPage() {
     setOtpError("");
     setSendLoading(true);
     try {
-      const service = new AuthService(actor);
-      const otpCode = await service.requestOTP(phone.trim());
-      setDemoOtp(otpCode);
-      setOtpSent(true);
-      let secs = 60;
-      setOtpExpiry(secs);
-      const timer = setInterval(() => {
-        secs -= 1;
+      const result = await actor.requestOTP(phone.trim());
+      if (result.__kind__ === "ok") {
+        setDemoOtp(result.ok);
+        setOtpSent(true);
+        let secs = 60;
         setOtpExpiry(secs);
-        if (secs <= 0) clearInterval(timer);
-      }, 1000);
-    } catch (e) {
-      setOtpError(
-        e instanceof Error
-          ? e.message
-          : "Authentication server unavailable. Please try again.",
-      );
+        const timer = setInterval(() => {
+          secs -= 1;
+          setOtpExpiry(secs);
+          if (secs <= 0) clearInterval(timer);
+        }, 1000);
+      } else {
+        setOtpError(result.err);
+      }
+    } catch {
+      setOtpError("Failed to send OTP. Try again.");
     } finally {
       setSendLoading(false);
     }
@@ -91,22 +92,20 @@ export default function LoginPage() {
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!actor) return;
     setOtpError("");
     setOtpLoading(true);
     try {
-      const service = new AuthService(actor);
-      const { token, role, name } = await service.verifyOTP(
-        phone.trim(),
-        otp.trim(),
-      );
-      login(token, role, name, "", phone);
-      navigate({ to: role === "admin" ? "/admin" : "/" });
-    } catch (e) {
-      setOtpError(
-        e instanceof Error
-          ? e.message
-          : "Authentication server unavailable. Please try again.",
-      );
+      const result = await actor.verifyOTP(phone.trim(), otp.trim());
+      if (result.__kind__ === "ok") {
+        const { token, role, name } = result.ok;
+        login(token, role, name, "", phone);
+        navigate({ to: role === "admin" ? "/admin" : "/" });
+      } else {
+        setOtpError(result.err);
+      }
+    } catch {
+      setOtpError("Verification failed. Try again.");
     } finally {
       setOtpLoading(false);
     }
@@ -226,7 +225,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
-                  disabled={emailLoading}
+                  disabled={emailLoading || !actor}
                   data-ocid="login.submit_button"
                   className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-semibold text-sm h-10 glow-cyan transition-all duration-200"
                 >
@@ -265,7 +264,7 @@ export default function LoginPage() {
                     <Button
                       type="button"
                       onClick={handleSendOtp}
-                      disabled={sendLoading || otpSent}
+                      disabled={sendLoading || otpSent || !actor}
                       data-ocid="otp.send_button"
                       variant="outline"
                       className="border-primary/40 text-primary hover:bg-primary/10 text-xs px-3 whitespace-nowrap"
@@ -345,7 +344,7 @@ export default function LoginPage() {
 
                       <Button
                         type="submit"
-                        disabled={otpLoading || otp.length < 6}
+                        disabled={otpLoading || otp.length < 6 || !actor}
                         data-ocid="otp.verify_button"
                         className="w-full bg-primary/90 hover:bg-primary text-primary-foreground font-semibold text-sm h-10 glow-cyan"
                       >
