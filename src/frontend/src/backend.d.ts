@@ -157,6 +157,7 @@ export interface backendInterface {
     getTradeHistory(): Promise<Array<TradeRecord>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    healthCheck(): Promise<boolean>;
     loginWithEmail(email: string, passwordHash: string): Promise<{
         __kind__: "ok";
         ok: {

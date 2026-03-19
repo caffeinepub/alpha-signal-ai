@@ -83,7 +83,6 @@ function TradingViewWidget({ symbol, interval }: TradingViewWidgetProps) {
 
     function initWidget() {
       if (!containerRef.current) return;
-      // biome-ignore lint/suspicious/noExplicitAny: TradingView is a 3rd-party global
       const TV = (window as any).TradingView;
       if (!TV) return;
 
@@ -110,7 +109,6 @@ function TradingViewWidget({ symbol, interval }: TradingViewWidgetProps) {
     }
 
     // Check if tv.js is already loaded
-    // biome-ignore lint/suspicious/noExplicitAny: TradingView is a 3rd-party global
     if ((window as any).TradingView) {
       initWidget();
     } else {

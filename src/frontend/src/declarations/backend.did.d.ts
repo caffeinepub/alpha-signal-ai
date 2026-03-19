@@ -171,6 +171,7 @@ export interface _SERVICE {
   >,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
+  'healthCheck' : ActorMethod<[], boolean>,
   'validateSession' : ActorMethod<
     [string],
     {

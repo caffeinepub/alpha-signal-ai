@@ -49,6 +49,9 @@ actor {
   let sessions = Map.empty<Text, Session>();
   let otpRecords = Map.empty<Text, OTPRecord>();
 
+  // Admin email constant - only this email gets admin role
+  let adminEmail : Text = "prakash.brjn01@gmail.com";
+
   // User Profile Type
   public type UserProfile = {
     name : Text;
@@ -221,7 +224,7 @@ actor {
           email;
           phone;
           passwordHash;
-          role = "user";
+          role = if (email == adminEmail) "admin" else "user";
           createdAt = Time.now();
           isBanned = false;
         };
@@ -244,14 +247,14 @@ actor {
         let session : Session = {
           token;
           userId = user.id;
-          role = user.role;
+          role = if (user.email == adminEmail) "admin" else user.role;
           createdAt = Time.now();
           expiresAt = Time.now() + 86400_000_000_000; // 24 hours
         };
 
         sessions.add(token, session);
 
-        #ok({ token; role = user.role; name = user.name });
+        #ok({ token; role = if (email == adminEmail) "admin" else user.role; name = user.name });
       };
     };
   };
@@ -311,13 +314,13 @@ actor {
             let session : Session = {
               token;
               userId = user.id;
-              role = user.role;
+              role = if (user.email == adminEmail) "admin" else user.role;
               createdAt = Time.now();
               expiresAt = Time.now() + 86400_000_000_000;
             };
 
             sessions.add(token, session);
-            #ok({ token; role = user.role; name = user.name });
+            #ok({ token; role = if (user.email == adminEmail) "admin" else user.role; name = user.name });
           };
         };
       };
@@ -382,7 +385,7 @@ actor {
 
             #ok({
               userId = user.id;
-              role = user.role;
+              role = if (user.email == adminEmail) "admin" else user.role;
               name = user.name;
               email = user.email;
               phone = user.phone;
@@ -1208,6 +1211,11 @@ actor {
       Runtime.trap("Unauthorized: Only admins can view affiliate clicks");
     };
     affiliateClickStore.values().toArray();
+  };
+
+  // Health check - lightweight query to verify canister is running
+  public query func healthCheck() : async Bool {
+    true;
   };
 
 

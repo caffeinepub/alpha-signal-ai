@@ -208,7 +208,8 @@ export const idlService = IDL.Service({
       [TransformationOutput],
       ['query'],
     ),
-  'validateSession' : IDL.Func(
+  'healthCheck' : IDL.Func([], [IDL.Bool], ['query']),
+    'validateSession' : IDL.Func(
       [IDL.Text],
       [
         IDL.Variant({
@@ -364,7 +365,7 @@ export const idlFactory = ({ IDL }) => {
     'body' : IDL.Vec(IDL.Nat8),
     'headers' : IDL.Vec(http_header),
   });
-  
+
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
@@ -445,6 +446,7 @@ export const idlFactory = ({ IDL }) => {
         [TransformationOutput],
         ['query'],
       ),
+    'healthCheck' : IDL.Func([], [IDL.Bool], ['query']),
     'validateSession' : IDL.Func(
         [IDL.Text],
         [
@@ -462,10 +464,8 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
-  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
-  'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
-  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
-  'verifyOTP' : IDL.Func(
+    'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
+    'verifyOTP' : IDL.Func(
         [IDL.Text, IDL.Text],
         [
           IDL.Variant({

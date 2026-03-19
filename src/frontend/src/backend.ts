@@ -208,6 +208,7 @@ export enum UserRole {
 }
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
+    healthCheck(): Promise<boolean>;
     analyzeWithGemini(marketData: string): Promise<string>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     banUser(userId: bigint): Promise<{
@@ -593,7 +594,21 @@ export class Backend implements backendInterface {
             return from_candid_opt_n4(this._uploadFile, this._downloadFile, result);
         }
     }
-    async isCallerAdmin(): Promise<boolean> {
+    async healthCheck(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.healthCheck();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.healthCheck();
+            return result;
+        }
+    }
+        async isCallerAdmin(): Promise<boolean> {
         if (this.processError) {
             try {
                 const result = await this.actor.isCallerAdmin();

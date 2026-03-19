@@ -52,7 +52,6 @@ export function useBacktestTracker(): {
   const [, setTick] = useState(0);
 
   // ── Signal watcher: open new trades when a STRONG BUY/SELL fires ──────────
-  // biome-ignore lint/correctness/useExhaustiveDependencies: signals is the intended dep
   useEffect(() => {
     let changed = false;
 
@@ -98,7 +97,6 @@ export function useBacktestTracker(): {
   }, [signals]);
 
   // ── Price watcher: resolve OPEN trades against live market price ──────────
-  // biome-ignore lint/correctness/useExhaustiveDependencies: lastUpdate is the tick trigger
   useEffect(() => {
     if (!lastUpdate) return;
 

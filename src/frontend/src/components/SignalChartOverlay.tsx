@@ -211,7 +211,6 @@ export function SignalChartOverlay({ asset }: SignalChartOverlayProps) {
   }, [asset, marketData, lastUpdate]);
 
   // ── Record new signal markers from trades ─────────────────────────────────
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trades is the dep
   useEffect(() => {
     const assetSymbol = asset === "XAU" ? ["XAU", "GOLD"] : [asset];
 
