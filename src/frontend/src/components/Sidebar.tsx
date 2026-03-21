@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LineChart,
   Menu,
+  MessageSquare,
   Play,
   Radio,
   Shield,
@@ -33,6 +34,12 @@ const navItems = [
     label: "AI Signals",
     path: "/signals",
     ocid: "nav.signals.link",
+  },
+  {
+    icon: MessageSquare,
+    label: "Chat",
+    path: "/chat",
+    ocid: "nav.chat.link",
   },
   {
     icon: Flame,

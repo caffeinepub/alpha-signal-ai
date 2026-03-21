@@ -13,6 +13,7 @@ import Sidebar from "./components/Sidebar";
 import { AuthProvider } from "./hooks/useAuth";
 import AdminDashboard from "./pages/AdminDashboard";
 import Charts from "./pages/Charts";
+import ChatPage from "./pages/ChatPage";
 import Dashboard from "./pages/Dashboard";
 import Liquidation from "./pages/Liquidation";
 import Performance from "./pages/Performance";
@@ -48,6 +49,10 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/admin": {
     title: "Admin Dashboard",
     subtitle: "User management and platform analytics",
+  },
+  "/chat": {
+    title: "AI Chat",
+    subtitle: "Ask our AI assistant about signals and markets",
   },
   "/videos": {
     title: "Video Learning",
@@ -160,6 +165,16 @@ const videosRoute = createRoute({
   ),
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/chat",
+  component: () => (
+    <ProtectedRoute>
+      <ChatPage />
+    </ProtectedRoute>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   chartsRoute,
@@ -169,6 +184,7 @@ const routeTree = rootRoute.addChildren([
   researchRoute,
   adminRoute,
   videosRoute,
+  chatRoute,
 ]);
 
 const router = createRouter({ routeTree });
