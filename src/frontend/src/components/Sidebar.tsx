@@ -1,4 +1,3 @@
-import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
@@ -8,6 +7,7 @@ import {
   LayoutDashboard,
   LineChart,
   Menu,
+  Play,
   Radio,
   Shield,
   X,
@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const baseNavItems = [
+const navItems = [
   {
     icon: LayoutDashboard,
     label: "Dashboard",
@@ -52,9 +52,19 @@ const baseNavItems = [
     path: "/research",
     ocid: "nav.research.link",
   },
+  {
+    icon: Play,
+    label: "Videos",
+    path: "/videos",
+    ocid: "nav.videos.link",
+  },
+  {
+    icon: Shield,
+    label: "Admin Panel",
+    path: "/admin",
+    ocid: "nav.admin.link",
+  },
 ];
-
-const ADMIN_EMAIL = "prakash.brjn01@gmail.com";
 
 interface SidebarProps {
   currentPath: string;
@@ -62,21 +72,6 @@ interface SidebarProps {
 
 export default function Sidebar({ currentPath }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user } = useAuth();
-
-  const isAdmin = user?.role === "admin" || user?.email === ADMIN_EMAIL;
-
-  const navItems = isAdmin
-    ? [
-        ...baseNavItems,
-        {
-          icon: Shield,
-          label: "Admin Panel",
-          path: "/admin",
-          ocid: "nav.admin.link",
-        },
-      ]
-    : baseNavItems;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">

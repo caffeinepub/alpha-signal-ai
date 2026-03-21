@@ -89,225 +89,145 @@ export class ExternalBlob {
         return this;
     }
 }
-export interface TransformationOutput {
-    status: bigint;
-    body: Uint8Array;
-    headers: Array<http_header>;
-}
-export interface LiquidationZone {
-    priceLevel: number;
-    longLiquidations: number;
-    shortLiquidations: number;
-    intensity: bigint;
-}
-export interface SmcSignal {
-    priceLevel: number;
-    direction: string;
-    description: string;
-    strength: bigint;
-    symbol: string;
-    signalType: string;
-}
-export interface UserAccount {
-    id: bigint;
-    name: string;
-    createdAt: bigint;
-    role: string;
-    email: string;
-    isBanned: boolean;
-    passwordHash: string;
-    phone: string;
-}
-export interface MarketAsset {
-    change24h: number;
-    name: string;
-    volume: number;
-    low24h: number;
-    high24h: number;
-    price: number;
-    symbol: string;
-}
-export interface GeminiAnalysis {
-    rawText: string;
-    strategicInsight: string;
-    signal: string;
-    confidence: bigint;
-    marketBias: string;
-}
-export interface AISignal {
-    direction: string;
-    takeProfit: number;
-    reasoning: string;
-    stopLoss: number;
-    entryPrice: number;
-    confidence: bigint;
-    riskLevel: string;
-    symbol: string;
-}
-export interface http_header {
-    value: string;
-    name: string;
-}
-export interface http_request_result {
-    status: bigint;
-    body: Uint8Array;
-    headers: Array<http_header>;
-}
-export interface Gainer {
-    name: string;
-    price: number;
-    changePercent: number;
-    symbol: string;
-}
-export interface PerformanceStats {
-    bestTrade: number;
-    worstTrade: number;
-    totalTrades: bigint;
-    avgLoss: number;
-    totalPnl: number;
-    winRate: number;
-    avgWin: number;
-}
-export interface TransformationInput {
-    context: Uint8Array;
-    response: http_request_result;
-}
-export interface Candle {
-    low: number;
-    high: number;
-    close: number;
-    open: number;
-    volume: number;
-    timestamp: bigint;
-}
-export interface TradeRecord {
-    id: bigint;
-    pnl: number;
-    direction: string;
-    pnlPercent: number;
-    timestamp: bigint;
-    entryPrice: number;
-    exitPrice: number;
-    outcome: string;
-    symbol: string;
-}
 export interface UserProfile {
     name: string;
     subscriptionTier: string;
     email: string;
 }
-export interface MarketSentiment {
-    sentiment: string;
-    fearGreedLabel: string;
-    fearGreedIndex: bigint;
+export interface _CaffeineStorageCreateCertificateResult {
+    method: string;
+    blob_hash: string;
+}
+export interface _CaffeineStorageRefillResult {
+    success?: boolean;
+    topped_up_amount?: bigint;
+}
+export interface _CaffeineStorageRefillInformation {
+    proposed_top_up_amount?: bigint;
 }
 export enum UserRole {
     admin = "admin",
     user = "user",
     guest = "guest"
 }
+export enum VideoDifficulty {
+    beginner = "beginner",
+    advanced = "advanced"
+}
 export interface backendInterface {
+    _caffeineStorageBlobIsLive(hash: Uint8Array): Promise<boolean>;
+    _caffeineStorageBlobsToDelete(): Promise<Array<Uint8Array>>;
+    _caffeineStorageConfirmBlobDeletion(blobs: Array<Uint8Array>): Promise<void>;
+    _caffeineStorageCreateCertificate(blobHash: string): Promise<_CaffeineStorageCreateCertificateResult>;
+    _caffeineStorageRefillCashier(refillInformation: _CaffeineStorageRefillInformation | null): Promise<_CaffeineStorageRefillResult>;
+    _caffeineStorageUpdateGatewayPrincipals(): Promise<void>;
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
-    healthCheck(): Promise<boolean>;
-    analyzeWithGemini(marketData: string): Promise<string>;
+    addVideo(title: string, description: string, videoUrl: string, thumbnailUrl: string, difficulty: VideoDifficulty): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    banUser(userId: bigint): Promise<{
-        __kind__: "ok";
-        ok: null;
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
-    getAISignals(): Promise<Array<AISignal>>;
-    getActiveSessions(): Promise<bigint>;
-    getAllUsers(): Promise<Array<UserAccount>>;
+    deleteVideo(videoId: bigint): Promise<void>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
-    getCandlestickData(_symbol: string, _timeframe: string): Promise<Array<Candle>>;
-    getLiquidationData(_symbol: string): Promise<Array<LiquidationZone>>;
-    getMarketData(): Promise<Array<MarketAsset>>;
-    getMarketSentiment(): Promise<MarketSentiment>;
-    getPerformanceStats(): Promise<PerformanceStats>;
-    getSentimentFromNews(headlines: Array<string>): Promise<GeminiAnalysis>;
-    getSmcSignals(): Promise<Array<SmcSignal>>;
-    getTopGainers(): Promise<Array<Gainer>>;
-    getTopLosers(): Promise<Array<Gainer>>;
-    getTradeHistory(): Promise<Array<TradeRecord>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
+    getVideos(): Promise<Array<{
+        id: bigint;
+        title: string;
+        thumbnailUrl: string;
+        difficulty: string;
+        description: string;
+        uploaderPrincipal: Uint8Array;
+        videoUrl: string;
+        uploaded_at: bigint;
+    }>>;
     isCallerAdmin(): Promise<boolean>;
-    loginWithEmail(email: string, passwordHash: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            token: string;
-            name: string;
-            role: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
-    logoutSession(token: string): Promise<void>;
-    refreshMarketData(): Promise<Array<MarketAsset>>;
-    registerUser(name: string, email: string, phone: string, passwordHash: string): Promise<{
-        __kind__: "ok";
-        ok: bigint;
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
-    requestOTP(phone: string): Promise<{
-        __kind__: "ok";
-        ok: string;
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
-    researchWithGemini(symbol: string, marketType: string): Promise<string>;
-    resetPasswordWithOTP(phone: string, otp: string, newPassword: string): Promise<{
-        __kind__: "ok";
-        ok: null;
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    transform(input: TransformationInput): Promise<TransformationOutput>;
-    validateSession(token: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            userId: bigint;
-            name: string;
-            role: string;
-            email: string;
-            phone: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
-    trackAffiliateClick(exchange: string, assetSymbol: string): Promise<void>;
-    getAffiliateClicks(): Promise<Array<AffiliateClick>>;
-    verifyOTP(phone: string, otp: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            token: string;
-            name: string;
-            role: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }>;
 }
-import type { UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
-export interface AffiliateClick {
-  exchange: string;
-  assetSymbol: string;
-  timestamp: bigint;
-}
-
+import type { UserProfile as _UserProfile, UserRole as _UserRole, VideoDifficulty as _VideoDifficulty, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async _caffeineStorageBlobIsLive(arg0: Uint8Array): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageBlobIsLive(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageBlobIsLive(arg0);
+            return result;
+        }
+    }
+    async _caffeineStorageBlobsToDelete(): Promise<Array<Uint8Array>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageBlobsToDelete();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageBlobsToDelete();
+            return result;
+        }
+    }
+    async _caffeineStorageConfirmBlobDeletion(arg0: Array<Uint8Array>): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageConfirmBlobDeletion(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageConfirmBlobDeletion(arg0);
+            return result;
+        }
+    }
+    async _caffeineStorageCreateCertificate(arg0: string): Promise<_CaffeineStorageCreateCertificateResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageCreateCertificate(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageCreateCertificate(arg0);
+            return result;
+        }
+    }
+    async _caffeineStorageRefillCashier(arg0: _CaffeineStorageRefillInformation | null): Promise<_CaffeineStorageRefillResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageRefillCashier(to_candid_opt_n1(this._uploadFile, this._downloadFile, arg0));
+                return from_candid__CaffeineStorageRefillResult_n4(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageRefillCashier(to_candid_opt_n1(this._uploadFile, this._downloadFile, arg0));
+            return from_candid__CaffeineStorageRefillResult_n4(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async _caffeineStorageUpdateGatewayPrincipals(): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor._caffeineStorageUpdateGatewayPrincipals();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor._caffeineStorageUpdateGatewayPrincipals();
+            return result;
+        }
+    }
     async _initializeAccessControlWithSecret(arg0: string): Promise<void> {
         if (this.processError) {
             try {
@@ -322,93 +242,45 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async analyzeWithGemini(arg0: string): Promise<string> {
+    async addVideo(arg0: string, arg1: string, arg2: string, arg3: string, arg4: VideoDifficulty): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.analyzeWithGemini(arg0);
+                const result = await this.actor.addVideo(arg0, arg1, arg2, arg3, to_candid_VideoDifficulty_n8(this._uploadFile, this._downloadFile, arg4));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.analyzeWithGemini(arg0);
+            const result = await this.actor.addVideo(arg0, arg1, arg2, arg3, to_candid_VideoDifficulty_n8(this._uploadFile, this._downloadFile, arg4));
             return result;
         }
     }
     async assignCallerUserRole(arg0: Principal, arg1: UserRole): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n1(this._uploadFile, this._downloadFile, arg1));
+                const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n10(this._uploadFile, this._downloadFile, arg1));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n1(this._uploadFile, this._downloadFile, arg1));
+            const result = await this.actor.assignCallerUserRole(arg0, to_candid_UserRole_n10(this._uploadFile, this._downloadFile, arg1));
             return result;
         }
     }
-    async banUser(arg0: bigint): Promise<{
-        __kind__: "ok";
-        ok: null;
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
+    async deleteVideo(arg0: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.banUser(arg0);
-                return from_candid_variant_n3(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.banUser(arg0);
-            return from_candid_variant_n3(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getAISignals(): Promise<Array<AISignal>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getAISignals();
+                const result = await this.actor.deleteVideo(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getAISignals();
-            return result;
-        }
-    }
-    async getActiveSessions(): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getActiveSessions();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getActiveSessions();
-            return result;
-        }
-    }
-    async getAllUsers(): Promise<Array<UserAccount>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getAllUsers();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getAllUsers();
+            const result = await this.actor.deleteVideo(arg0);
             return result;
         }
     }
@@ -416,199 +288,68 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n4(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n4(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n5(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n13(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n5(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async getCandlestickData(arg0: string, arg1: string): Promise<Array<Candle>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getCandlestickData(arg0, arg1);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getCandlestickData(arg0, arg1);
-            return result;
-        }
-    }
-    async getLiquidationData(arg0: string): Promise<Array<LiquidationZone>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getLiquidationData(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getLiquidationData(arg0);
-            return result;
-        }
-    }
-    async getMarketData(): Promise<Array<MarketAsset>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getMarketData();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getMarketData();
-            return result;
-        }
-    }
-    async getMarketSentiment(): Promise<MarketSentiment> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getMarketSentiment();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getMarketSentiment();
-            return result;
-        }
-    }
-    async getPerformanceStats(): Promise<PerformanceStats> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getPerformanceStats();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getPerformanceStats();
-            return result;
-        }
-    }
-    async getSentimentFromNews(arg0: Array<string>): Promise<GeminiAnalysis> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getSentimentFromNews(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getSentimentFromNews(arg0);
-            return result;
-        }
-    }
-    async getSmcSignals(): Promise<Array<SmcSignal>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getSmcSignals();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getSmcSignals();
-            return result;
-        }
-    }
-    async getTopGainers(): Promise<Array<Gainer>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getTopGainers();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getTopGainers();
-            return result;
-        }
-    }
-    async getTopLosers(): Promise<Array<Gainer>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getTopLosers();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getTopLosers();
-            return result;
-        }
-    }
-    async getTradeHistory(): Promise<Array<TradeRecord>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getTradeHistory();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getTradeHistory();
-            return result;
+            return from_candid_UserRole_n13(this._uploadFile, this._downloadFile, result);
         }
     }
     async getUserProfile(arg0: Principal): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n4(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n4(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n12(this._uploadFile, this._downloadFile, result);
         }
     }
-    async healthCheck(): Promise<boolean> {
+    async getVideos(): Promise<Array<{
+        id: bigint;
+        title: string;
+        thumbnailUrl: string;
+        difficulty: string;
+        description: string;
+        uploaderPrincipal: Uint8Array;
+        videoUrl: string;
+        uploaded_at: bigint;
+    }>> {
         if (this.processError) {
             try {
-                const result = await this.actor.healthCheck();
+                const result = await this.actor.getVideos();
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.healthCheck();
+            const result = await this.actor.getVideos();
             return result;
         }
     }
-        async isCallerAdmin(): Promise<boolean> {
+    async isCallerAdmin(): Promise<boolean> {
         if (this.processError) {
             try {
                 const result = await this.actor.isCallerAdmin();
@@ -620,132 +361,6 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.isCallerAdmin();
             return result;
-        }
-    }
-    async loginWithEmail(arg0: string, arg1: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            token: string;
-            name: string;
-            role: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.loginWithEmail(arg0, arg1);
-                return from_candid_variant_n7(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.loginWithEmail(arg0, arg1);
-            return from_candid_variant_n7(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async logoutSession(arg0: string): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.logoutSession(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.logoutSession(arg0);
-            return result;
-        }
-    }
-    async refreshMarketData(): Promise<Array<MarketAsset>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.refreshMarketData();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.refreshMarketData();
-            return result;
-        }
-    }
-    async registerUser(arg0: string, arg1: string, arg2: string, arg3: string): Promise<{
-        __kind__: "ok";
-        ok: bigint;
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.registerUser(arg0, arg1, arg2, arg3);
-                return from_candid_variant_n8(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.registerUser(arg0, arg1, arg2, arg3);
-            return from_candid_variant_n8(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async requestOTP(arg0: string): Promise<{
-        __kind__: "ok";
-        ok: string;
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.requestOTP(arg0);
-                return from_candid_variant_n9(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.requestOTP(arg0);
-            return from_candid_variant_n9(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async researchWithGemini(arg0: string, arg1: string): Promise<string> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.researchWithGemini(arg0, arg1);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.researchWithGemini(arg0, arg1);
-            return result;
-        }
-    }
-    async resetPasswordWithOTP(arg0: string, arg1: string, arg2: string): Promise<{
-        __kind__: "ok";
-        ok: null;
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.resetPasswordWithOTP(arg0, arg1, arg2);
-                return from_candid_variant_n3(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.resetPasswordWithOTP(arg0, arg1, arg2);
-            return from_candid_variant_n3(this._uploadFile, this._downloadFile, result);
         }
     }
     async saveCallerUserProfile(arg0: UserProfile): Promise<void> {
@@ -762,154 +377,35 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async transform(arg0: TransformationInput): Promise<TransformationOutput> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.transform(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.transform(arg0);
-            return result;
-        }
-    }
-    async validateSession(arg0: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            userId: bigint;
-            name: string;
-            role: string;
-            email: string;
-            phone: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.validateSession(arg0);
-                return from_candid_variant_n10(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.validateSession(arg0);
-            return from_candid_variant_n10(this._uploadFile, this._downloadFile, result);
-        }
-    }
-    async trackAffiliateClick(arg0: string, arg1: string): Promise<void> {
-        if (this.processError) {
-            try {
-                await this.actor.trackAffiliateClick(arg0, arg1);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            await this.actor.trackAffiliateClick(arg0, arg1);
-        }
-    }
-    async getAffiliateClicks(): Promise<Array<AffiliateClick>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getAffiliateClicks();
-                return result as Array<AffiliateClick>;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getAffiliateClicks();
-            return result as Array<AffiliateClick>;
-        }
-    }
-    async verifyOTP(arg0: string, arg1: string): Promise<{
-        __kind__: "ok";
-        ok: {
-            token: string;
-            name: string;
-            role: string;
-        };
-    } | {
-        __kind__: "err";
-        err: string;
-    }> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.verifyOTP(arg0, arg1);
-                return from_candid_variant_n7(this._uploadFile, this._downloadFile, result);
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.verifyOTP(arg0, arg1);
-            return from_candid_variant_n7(this._uploadFile, this._downloadFile, result);
-        }
-    }
 }
-function from_candid_UserRole_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n6(_uploadFile, _downloadFile, value);
+function from_candid_UserRole_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n14(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid__CaffeineStorageRefillResult_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: __CaffeineStorageRefillResult): _CaffeineStorageRefillResult {
+    return from_candid_record_n5(_uploadFile, _downloadFile, value);
+}
+function from_candid_opt_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: {
-        userId: bigint;
-        name: string;
-        role: string;
-        email: string;
-        phone: string;
-    };
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: {
-        userId: bigint;
-        name: string;
-        role: string;
-        email: string;
-        phone: string;
-    };
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
+function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [boolean]): boolean | null {
+    return value.length === 0 ? null : value[0];
 }
-function from_candid_variant_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: null;
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: null;
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
+function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
+    return value.length === 0 ? null : value[0];
 }
-function from_candid_variant_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    success: [] | [boolean];
+    topped_up_amount: [] | [bigint];
+}): {
+    success?: boolean;
+    topped_up_amount?: bigint;
+} {
+    return {
+        success: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.success)),
+        topped_up_amount: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.topped_up_amount))
+    };
+}
+function from_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -918,75 +414,28 @@ function from_candid_variant_n6(_uploadFile: (file: ExternalBlob) => Promise<Uin
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: {
-        token: string;
-        name: string;
-        role: string;
+function to_candid_UserRole_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
+    return to_candid_variant_n11(_uploadFile, _downloadFile, value);
+}
+function to_candid_VideoDifficulty_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: VideoDifficulty): _VideoDifficulty {
+    return to_candid_variant_n9(_uploadFile, _downloadFile, value);
+}
+function to_candid__CaffeineStorageRefillInformation_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _CaffeineStorageRefillInformation): __CaffeineStorageRefillInformation {
+    return to_candid_record_n3(_uploadFile, _downloadFile, value);
+}
+function to_candid_opt_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _CaffeineStorageRefillInformation | null): [] | [__CaffeineStorageRefillInformation] {
+    return value === null ? candid_none() : candid_some(to_candid__CaffeineStorageRefillInformation_n2(_uploadFile, _downloadFile, value));
+}
+function to_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    proposed_top_up_amount?: bigint;
+}): {
+    proposed_top_up_amount: [] | [bigint];
+} {
+    return {
+        proposed_top_up_amount: value.proposed_top_up_amount ? candid_some(value.proposed_top_up_amount) : candid_none()
     };
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: {
-        token: string;
-        name: string;
-        role: string;
-    };
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
 }
-function from_candid_variant_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: bigint;
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: bigint;
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
-}
-function from_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    ok: string;
-} | {
-    err: string;
-}): {
-    __kind__: "ok";
-    ok: string;
-} | {
-    __kind__: "err";
-    err: string;
-} {
-    return "ok" in value ? {
-        __kind__: "ok",
-        ok: value.ok
-    } : "err" in value ? {
-        __kind__: "err",
-        err: value.err
-    } : value;
-}
-function to_candid_UserRole_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
-    return to_candid_variant_n2(_uploadFile, _downloadFile, value);
-}
-function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): {
+function to_candid_variant_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): {
     admin: null;
 } | {
     user: null;
@@ -999,6 +448,17 @@ function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8
         user: null
     } : value == UserRole.guest ? {
         guest: null
+    } : value;
+}
+function to_candid_variant_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: VideoDifficulty): {
+    beginner: null;
+} | {
+    advanced: null;
+} {
+    return value == VideoDifficulty.beginner ? {
+        beginner: null
+    } : value == VideoDifficulty.advanced ? {
+        advanced: null
     } : value;
 }
 export interface CreateActorOptions {

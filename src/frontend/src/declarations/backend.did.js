@@ -8,477 +8,187 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const _CaffeineStorageCreateCertificateResult = IDL.Record({
+  'method' : IDL.Text,
+  'blob_hash' : IDL.Text,
+});
+export const _CaffeineStorageRefillInformation = IDL.Record({
+  'proposed_top_up_amount' : IDL.Opt(IDL.Nat),
+});
+export const _CaffeineStorageRefillResult = IDL.Record({
+  'success' : IDL.Opt(IDL.Bool),
+  'topped_up_amount' : IDL.Opt(IDL.Nat),
+});
+export const VideoDifficulty = IDL.Variant({
+  'beginner' : IDL.Null,
+  'advanced' : IDL.Null,
+});
 export const UserRole = IDL.Variant({
   'admin' : IDL.Null,
   'user' : IDL.Null,
   'guest' : IDL.Null,
-});
-export const AISignal = IDL.Record({
-  'direction' : IDL.Text,
-  'takeProfit' : IDL.Float64,
-  'reasoning' : IDL.Text,
-  'stopLoss' : IDL.Float64,
-  'entryPrice' : IDL.Float64,
-  'confidence' : IDL.Nat,
-  'riskLevel' : IDL.Text,
-  'symbol' : IDL.Text,
-});
-export const UserAccount = IDL.Record({
-  'id' : IDL.Nat,
-  'name' : IDL.Text,
-  'createdAt' : IDL.Int,
-  'role' : IDL.Text,
-  'email' : IDL.Text,
-  'isBanned' : IDL.Bool,
-  'passwordHash' : IDL.Text,
-  'phone' : IDL.Text,
 });
 export const UserProfile = IDL.Record({
   'name' : IDL.Text,
   'subscriptionTier' : IDL.Text,
   'email' : IDL.Text,
 });
-export const Candle = IDL.Record({
-  'low' : IDL.Float64,
-  'high' : IDL.Float64,
-  'close' : IDL.Float64,
-  'open' : IDL.Float64,
-  'volume' : IDL.Float64,
-  'timestamp' : IDL.Int,
-});
-export const LiquidationZone = IDL.Record({
-  'priceLevel' : IDL.Float64,
-  'longLiquidations' : IDL.Float64,
-  'shortLiquidations' : IDL.Float64,
-  'intensity' : IDL.Nat,
-});
-export const MarketAsset = IDL.Record({
-  'change24h' : IDL.Float64,
-  'name' : IDL.Text,
-  'volume' : IDL.Float64,
-  'low24h' : IDL.Float64,
-  'high24h' : IDL.Float64,
-  'price' : IDL.Float64,
-  'symbol' : IDL.Text,
-});
-export const MarketSentiment = IDL.Record({
-  'sentiment' : IDL.Text,
-  'fearGreedLabel' : IDL.Text,
-  'fearGreedIndex' : IDL.Nat,
-});
-export const PerformanceStats = IDL.Record({
-  'bestTrade' : IDL.Float64,
-  'worstTrade' : IDL.Float64,
-  'totalTrades' : IDL.Nat,
-  'avgLoss' : IDL.Float64,
-  'totalPnl' : IDL.Float64,
-  'winRate' : IDL.Float64,
-  'avgWin' : IDL.Float64,
-});
-export const GeminiAnalysis = IDL.Record({
-  'rawText' : IDL.Text,
-  'strategicInsight' : IDL.Text,
-  'signal' : IDL.Text,
-  'confidence' : IDL.Nat,
-  'marketBias' : IDL.Text,
-});
-export const SmcSignal = IDL.Record({
-  'priceLevel' : IDL.Float64,
-  'direction' : IDL.Text,
-  'description' : IDL.Text,
-  'strength' : IDL.Nat,
-  'symbol' : IDL.Text,
-  'signalType' : IDL.Text,
-});
-export const Gainer = IDL.Record({
-  'name' : IDL.Text,
-  'price' : IDL.Float64,
-  'changePercent' : IDL.Float64,
-  'symbol' : IDL.Text,
-});
-export const TradeRecord = IDL.Record({
-  'id' : IDL.Nat,
-  'pnl' : IDL.Float64,
-  'direction' : IDL.Text,
-  'pnlPercent' : IDL.Float64,
-  'timestamp' : IDL.Int,
-  'entryPrice' : IDL.Float64,
-  'exitPrice' : IDL.Float64,
-  'outcome' : IDL.Text,
-  'symbol' : IDL.Text,
-});
-export const http_header = IDL.Record({
-  'value' : IDL.Text,
-  'name' : IDL.Text,
-});
-export const http_request_result = IDL.Record({
-  'status' : IDL.Nat,
-  'body' : IDL.Vec(IDL.Nat8),
-  'headers' : IDL.Vec(http_header),
-});
-export const TransformationInput = IDL.Record({
-  'context' : IDL.Vec(IDL.Nat8),
-  'response' : http_request_result,
-});
-export const TransformationOutput = IDL.Record({
-  'status' : IDL.Nat,
-  'body' : IDL.Vec(IDL.Nat8),
-  'headers' : IDL.Vec(http_header),
-});
-
-export const AffiliateClick = IDL.Record({
-  'exchange' : IDL.Text,
-  'assetSymbol' : IDL.Text,
-  'timestamp' : IDL.Int,
-});
 
 export const idlService = IDL.Service({
-  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-  'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-  'banUser' : IDL.Func(
-      [IDL.Nat],
-      [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
+  '_caffeineStorageBlobIsLive' : IDL.Func(
+      [IDL.Vec(IDL.Nat8)],
+      [IDL.Bool],
+      ['query'],
+    ),
+  '_caffeineStorageBlobsToDelete' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Vec(IDL.Nat8))],
+      ['query'],
+    ),
+  '_caffeineStorageConfirmBlobDeletion' : IDL.Func(
+      [IDL.Vec(IDL.Vec(IDL.Nat8))],
+      [],
       [],
     ),
-  'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
-  'getActiveSessions' : IDL.Func([], [IDL.Nat], ['query']),
-  'getAllUsers' : IDL.Func([], [IDL.Vec(UserAccount)], ['query']),
+  '_caffeineStorageCreateCertificate' : IDL.Func(
+      [IDL.Text],
+      [_CaffeineStorageCreateCertificateResult],
+      [],
+    ),
+  '_caffeineStorageRefillCashier' : IDL.Func(
+      [IDL.Opt(_CaffeineStorageRefillInformation)],
+      [_CaffeineStorageRefillResult],
+      [],
+    ),
+  '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'addVideo' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, VideoDifficulty],
+      [IDL.Nat],
+      [],
+    ),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'deleteVideo' : IDL.Func([IDL.Nat], [], []),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
-  'getCandlestickData' : IDL.Func(
-      [IDL.Text, IDL.Text],
-      [IDL.Vec(Candle)],
-      ['query'],
-    ),
-  'getLiquidationData' : IDL.Func(
-      [IDL.Text],
-      [IDL.Vec(LiquidationZone)],
-      ['query'],
-    ),
-  'getMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], ['query']),
-  'getMarketSentiment' : IDL.Func([], [MarketSentiment], ['query']),
-  'getPerformanceStats' : IDL.Func([], [PerformanceStats], ['query']),
-  'getSentimentFromNews' : IDL.Func([IDL.Vec(IDL.Text)], [GeminiAnalysis], []),
-  'getSmcSignals' : IDL.Func([], [IDL.Vec(SmcSignal)], ['query']),
-  'getTopGainers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
-  'getTopLosers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
-  'getTradeHistory' : IDL.Func([], [IDL.Vec(TradeRecord)], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
       ['query'],
     ),
-  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'loginWithEmail' : IDL.Func(
-      [IDL.Text, IDL.Text],
+  'getVideos' : IDL.Func(
+      [],
       [
-        IDL.Variant({
-          'ok' : IDL.Record({
-            'token' : IDL.Text,
-            'name' : IDL.Text,
-            'role' : IDL.Text,
-          }),
-          'err' : IDL.Text,
-        }),
+        IDL.Vec(
+          IDL.Record({
+            'id' : IDL.Nat,
+            'title' : IDL.Text,
+            'thumbnailUrl' : IDL.Text,
+            'difficulty' : IDL.Text,
+            'description' : IDL.Text,
+            'uploaderPrincipal' : IDL.Vec(IDL.Nat8),
+            'videoUrl' : IDL.Text,
+            'uploaded_at' : IDL.Int,
+          })
+        ),
       ],
-      [],
-    ),
-  'logoutSession' : IDL.Func([IDL.Text], [], []),
-  'refreshMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], []),
-  'registerUser' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
-      [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
-      [],
-    ),
-  'requestOTP' : IDL.Func(
-      [IDL.Text],
-      [IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text })],
-      [],
-    ),
-  'researchWithGemini' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
-  'resetPasswordWithOTP' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text],
-      [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
-      [],
-    ),
-  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-  'transform' : IDL.Func(
-      [TransformationInput],
-      [TransformationOutput],
       ['query'],
     ),
-  'healthCheck' : IDL.Func([], [IDL.Bool], ['query']),
-    'validateSession' : IDL.Func(
-      [IDL.Text],
-      [
-        IDL.Variant({
-          'ok' : IDL.Record({
-            'userId' : IDL.Nat,
-            'name' : IDL.Text,
-            'role' : IDL.Text,
-            'email' : IDL.Text,
-            'phone' : IDL.Text,
-          }),
-          'err' : IDL.Text,
-        }),
-      ],
-      [],
-    ),
-  'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
-  'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
-  'verifyOTP' : IDL.Func(
-      [IDL.Text, IDL.Text],
-      [
-        IDL.Variant({
-          'ok' : IDL.Record({
-            'token' : IDL.Text,
-            'name' : IDL.Text,
-            'role' : IDL.Text,
-          }),
-          'err' : IDL.Text,
-        }),
-      ],
-      [],
-    ),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
-  const AffiliateClick = IDL.Record({
-    'exchange' : IDL.Text,
-    'assetSymbol' : IDL.Text,
-    'timestamp' : IDL.Int,
+  const _CaffeineStorageCreateCertificateResult = IDL.Record({
+    'method' : IDL.Text,
+    'blob_hash' : IDL.Text,
+  });
+  const _CaffeineStorageRefillInformation = IDL.Record({
+    'proposed_top_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const _CaffeineStorageRefillResult = IDL.Record({
+    'success' : IDL.Opt(IDL.Bool),
+    'topped_up_amount' : IDL.Opt(IDL.Nat),
+  });
+  const VideoDifficulty = IDL.Variant({
+    'beginner' : IDL.Null,
+    'advanced' : IDL.Null,
   });
   const UserRole = IDL.Variant({
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
   });
-  const AISignal = IDL.Record({
-    'direction' : IDL.Text,
-    'takeProfit' : IDL.Float64,
-    'reasoning' : IDL.Text,
-    'stopLoss' : IDL.Float64,
-    'entryPrice' : IDL.Float64,
-    'confidence' : IDL.Nat,
-    'riskLevel' : IDL.Text,
-    'symbol' : IDL.Text,
-  });
-  const UserAccount = IDL.Record({
-    'id' : IDL.Nat,
-    'name' : IDL.Text,
-    'createdAt' : IDL.Int,
-    'role' : IDL.Text,
-    'email' : IDL.Text,
-    'isBanned' : IDL.Bool,
-    'passwordHash' : IDL.Text,
-    'phone' : IDL.Text,
-  });
   const UserProfile = IDL.Record({
     'name' : IDL.Text,
     'subscriptionTier' : IDL.Text,
     'email' : IDL.Text,
   });
-  const Candle = IDL.Record({
-    'low' : IDL.Float64,
-    'high' : IDL.Float64,
-    'close' : IDL.Float64,
-    'open' : IDL.Float64,
-    'volume' : IDL.Float64,
-    'timestamp' : IDL.Int,
-  });
-  const LiquidationZone = IDL.Record({
-    'priceLevel' : IDL.Float64,
-    'longLiquidations' : IDL.Float64,
-    'shortLiquidations' : IDL.Float64,
-    'intensity' : IDL.Nat,
-  });
-  const MarketAsset = IDL.Record({
-    'change24h' : IDL.Float64,
-    'name' : IDL.Text,
-    'volume' : IDL.Float64,
-    'low24h' : IDL.Float64,
-    'high24h' : IDL.Float64,
-    'price' : IDL.Float64,
-    'symbol' : IDL.Text,
-  });
-  const MarketSentiment = IDL.Record({
-    'sentiment' : IDL.Text,
-    'fearGreedLabel' : IDL.Text,
-    'fearGreedIndex' : IDL.Nat,
-  });
-  const PerformanceStats = IDL.Record({
-    'bestTrade' : IDL.Float64,
-    'worstTrade' : IDL.Float64,
-    'totalTrades' : IDL.Nat,
-    'avgLoss' : IDL.Float64,
-    'totalPnl' : IDL.Float64,
-    'winRate' : IDL.Float64,
-    'avgWin' : IDL.Float64,
-  });
-  const GeminiAnalysis = IDL.Record({
-    'rawText' : IDL.Text,
-    'strategicInsight' : IDL.Text,
-    'signal' : IDL.Text,
-    'confidence' : IDL.Nat,
-    'marketBias' : IDL.Text,
-  });
-  const SmcSignal = IDL.Record({
-    'priceLevel' : IDL.Float64,
-    'direction' : IDL.Text,
-    'description' : IDL.Text,
-    'strength' : IDL.Nat,
-    'symbol' : IDL.Text,
-    'signalType' : IDL.Text,
-  });
-  const Gainer = IDL.Record({
-    'name' : IDL.Text,
-    'price' : IDL.Float64,
-    'changePercent' : IDL.Float64,
-    'symbol' : IDL.Text,
-  });
-  const TradeRecord = IDL.Record({
-    'id' : IDL.Nat,
-    'pnl' : IDL.Float64,
-    'direction' : IDL.Text,
-    'pnlPercent' : IDL.Float64,
-    'timestamp' : IDL.Int,
-    'entryPrice' : IDL.Float64,
-    'exitPrice' : IDL.Float64,
-    'outcome' : IDL.Text,
-    'symbol' : IDL.Text,
-  });
-  const http_header = IDL.Record({ 'value' : IDL.Text, 'name' : IDL.Text });
-  const http_request_result = IDL.Record({
-    'status' : IDL.Nat,
-    'body' : IDL.Vec(IDL.Nat8),
-    'headers' : IDL.Vec(http_header),
-  });
-  const TransformationInput = IDL.Record({
-    'context' : IDL.Vec(IDL.Nat8),
-    'response' : http_request_result,
-  });
-  const TransformationOutput = IDL.Record({
-    'status' : IDL.Nat,
-    'body' : IDL.Vec(IDL.Nat8),
-    'headers' : IDL.Vec(http_header),
-  });
-
+  
   return IDL.Service({
-    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-    'analyzeWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
-    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
-    'banUser' : IDL.Func(
-        [IDL.Nat],
-        [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
+    '_caffeineStorageBlobIsLive' : IDL.Func(
+        [IDL.Vec(IDL.Nat8)],
+        [IDL.Bool],
+        ['query'],
+      ),
+    '_caffeineStorageBlobsToDelete' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Vec(IDL.Nat8))],
+        ['query'],
+      ),
+    '_caffeineStorageConfirmBlobDeletion' : IDL.Func(
+        [IDL.Vec(IDL.Vec(IDL.Nat8))],
+        [],
         [],
       ),
-    'getAISignals' : IDL.Func([], [IDL.Vec(AISignal)], ['query']),
-    'getActiveSessions' : IDL.Func([], [IDL.Nat], ['query']),
-    'getAllUsers' : IDL.Func([], [IDL.Vec(UserAccount)], ['query']),
+    '_caffeineStorageCreateCertificate' : IDL.Func(
+        [IDL.Text],
+        [_CaffeineStorageCreateCertificateResult],
+        [],
+      ),
+    '_caffeineStorageRefillCashier' : IDL.Func(
+        [IDL.Opt(_CaffeineStorageRefillInformation)],
+        [_CaffeineStorageRefillResult],
+        [],
+      ),
+    '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'addVideo' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, VideoDifficulty],
+        [IDL.Nat],
+        [],
+      ),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'deleteVideo' : IDL.Func([IDL.Nat], [], []),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
-    'getCandlestickData' : IDL.Func(
-        [IDL.Text, IDL.Text],
-        [IDL.Vec(Candle)],
-        ['query'],
-      ),
-    'getLiquidationData' : IDL.Func(
-        [IDL.Text],
-        [IDL.Vec(LiquidationZone)],
-        ['query'],
-      ),
-    'getMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], ['query']),
-    'getMarketSentiment' : IDL.Func([], [MarketSentiment], ['query']),
-    'getPerformanceStats' : IDL.Func([], [PerformanceStats], ['query']),
-    'getSentimentFromNews' : IDL.Func(
-        [IDL.Vec(IDL.Text)],
-        [GeminiAnalysis],
-        [],
-      ),
-    'getSmcSignals' : IDL.Func([], [IDL.Vec(SmcSignal)], ['query']),
-    'getTopGainers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
-    'getTopLosers' : IDL.Func([], [IDL.Vec(Gainer)], ['query']),
-    'getTradeHistory' : IDL.Func([], [IDL.Vec(TradeRecord)], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
         ['query'],
       ),
-    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'loginWithEmail' : IDL.Func(
-        [IDL.Text, IDL.Text],
+    'getVideos' : IDL.Func(
+        [],
         [
-          IDL.Variant({
-            'ok' : IDL.Record({
-              'token' : IDL.Text,
-              'name' : IDL.Text,
-              'role' : IDL.Text,
-            }),
-            'err' : IDL.Text,
-          }),
+          IDL.Vec(
+            IDL.Record({
+              'id' : IDL.Nat,
+              'title' : IDL.Text,
+              'thumbnailUrl' : IDL.Text,
+              'difficulty' : IDL.Text,
+              'description' : IDL.Text,
+              'uploaderPrincipal' : IDL.Vec(IDL.Nat8),
+              'videoUrl' : IDL.Text,
+              'uploaded_at' : IDL.Int,
+            })
+          ),
         ],
-        [],
-      ),
-    'logoutSession' : IDL.Func([IDL.Text], [], []),
-    'refreshMarketData' : IDL.Func([], [IDL.Vec(MarketAsset)], []),
-    'registerUser' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
-        [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
-        [],
-      ),
-    'requestOTP' : IDL.Func(
-        [IDL.Text],
-        [IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text })],
-        [],
-      ),
-    'researchWithGemini' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
-    'resetPasswordWithOTP' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text],
-        [IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text })],
-        [],
-      ),
-    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-    'transform' : IDL.Func(
-        [TransformationInput],
-        [TransformationOutput],
         ['query'],
       ),
-    'healthCheck' : IDL.Func([], [IDL.Bool], ['query']),
-    'validateSession' : IDL.Func(
-        [IDL.Text],
-        [
-          IDL.Variant({
-            'ok' : IDL.Record({
-              'userId' : IDL.Nat,
-              'name' : IDL.Text,
-              'role' : IDL.Text,
-              'email' : IDL.Text,
-              'phone' : IDL.Text,
-            }),
-            'err' : IDL.Text,
-          }),
-        ],
-        [],
-      ),
-    'trackAffiliateClick' : IDL.Func([IDL.Text, IDL.Text], [], []),
-    'getAffiliateClicks' : IDL.Func([], [IDL.Vec(AffiliateClick)], ['query']),
-    'verifyOTP' : IDL.Func(
-        [IDL.Text, IDL.Text],
-        [
-          IDL.Variant({
-            'ok' : IDL.Record({
-              'token' : IDL.Text,
-              'name' : IDL.Text,
-              'role' : IDL.Text,
-            }),
-            'err' : IDL.Text,
-          }),
-        ],
-        [],
-      ),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   });
 };
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Binance Kline/Candlestick WebSocket ─────────────────────────────────────
-// Subscribes to btcusdt@kline_1m and btcusdt@kline_3m streams.
-// Accumulates rolling candle buffers and fires onCandleClose callbacks.
+// Subscribes to BTC and PAXG (gold proxy) kline streams for 3m and 15m.
+// Accumulates rolling candle buffers for the SFI signal engine.
 
 export interface Candle {
   time: number; // open time (ms)
@@ -15,30 +15,35 @@ export interface Candle {
 }
 
 export interface BinanceKlinesState {
+  candles3m_btc: Candle[];
+  candles15m_btc: Candle[];
+  candles3m_xau: Candle[];
+  candles15m_xau: Candle[];
+  // Backward-compat aliases used by legacy hooks
   candles1m: Candle[];
   candles3m: Candle[];
-  lastCandleClose1m: number; // timestamp of last closed 1m candle
-  lastCandleClose3m: number; // timestamp of last closed 3m candle
+  lastCandleClose1m: number;
+  lastCandleClose3m: number;
   isConnected: boolean;
-  lastTickTime: number; // last received message timestamp
+  lastTickTime: number;
 }
 
 const KLINE_WS_URL =
-  "wss://stream.binance.com:9443/stream?streams=btcusdt@kline_1m/btcusdt@kline_3m";
+  "wss://stream.binance.com:9443/stream?streams=btcusdt@kline_3m/btcusdt@kline_15m/paxgusdt@kline_3m/paxgusdt@kline_15m";
 
 const MAX_CANDLES = 200;
 const MAX_RECONNECT_DELAY = 30000;
 const BASE_RECONNECT_DELAY = 1000;
 
 interface BinanceKlineData {
-  t: number; // kline start time
-  o: string; // open
-  h: string; // high
-  l: string; // low
-  c: string; // close
-  v: string; // volume
-  x: boolean; // is this kline closed?
-  i: string; // interval
+  t: number;
+  o: string;
+  h: string;
+  l: string;
+  c: string;
+  v: string;
+  x: boolean;
+  i: string;
 }
 
 interface BinanceKlineMsg {
@@ -76,10 +81,11 @@ function upsertCandle(candles: Candle[], candle: Candle): Candle[] {
 }
 
 export function useBinanceKlines(): BinanceKlinesState {
-  const [candles1m, setCandles1m] = useState<Candle[]>([]);
-  const [candles3m, setCandles3m] = useState<Candle[]>([]);
-  const [lastCandleClose1m, setLastCandleClose1m] = useState(0);
+  const [candles3m_btc, setCandles3mBtc] = useState<Candle[]>([]);
   const [lastCandleClose3m, setLastCandleClose3m] = useState(0);
+  const [candles15m_btc, setCandles15mBtc] = useState<Candle[]>([]);
+  const [candles3m_xau, setCandles3mXau] = useState<Candle[]>([]);
+  const [candles15m_xau, setCandles15mXau] = useState<Candle[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastTickTime, setLastTickTime] = useState(0);
 
@@ -114,19 +120,23 @@ export function useBinanceKlines(): BinanceKlinesState {
       try {
         const msg: BinanceKlineMsg = JSON.parse(event.data as string);
         const k = msg.data.k;
+        const symbol = msg.data.s.toUpperCase();
         const candle = parseCandle(k);
 
         setLastTickTime(Date.now());
 
-        if (k.i === "1m") {
-          setCandles1m((prev) => upsertCandle(prev, candle));
-          if (k.x) {
-            setLastCandleClose1m(Date.now());
+        if (symbol === "BTCUSDT") {
+          if (k.i === "3m") {
+            setCandles3mBtc((prev) => upsertCandle(prev, candle));
+            if (k.x) setLastCandleClose3m(Date.now());
+          } else if (k.i === "15m") {
+            setCandles15mBtc((prev) => upsertCandle(prev, candle));
           }
-        } else if (k.i === "3m") {
-          setCandles3m((prev) => upsertCandle(prev, candle));
-          if (k.x) {
-            setLastCandleClose3m(Date.now());
+        } else if (symbol === "PAXGUSDT") {
+          if (k.i === "3m") {
+            setCandles3mXau((prev) => upsertCandle(prev, candle));
+          } else if (k.i === "15m") {
+            setCandles15mXau((prev) => upsertCandle(prev, candle));
           }
         }
       } catch {
@@ -177,9 +187,14 @@ export function useBinanceKlines(): BinanceKlinesState {
   }, [connect]);
 
   return {
-    candles1m,
-    candles3m,
-    lastCandleClose1m,
+    candles3m_btc,
+    candles15m_btc,
+    candles3m_xau,
+    candles15m_xau,
+    // Backward-compat: alias BTC 3m as the legacy candles3m
+    candles1m: candles3m_btc,
+    candles3m: candles3m_btc,
+    lastCandleClose1m: lastCandleClose3m,
     lastCandleClose3m,
     isConnected,
     lastTickTime,

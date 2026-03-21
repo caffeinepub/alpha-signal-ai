@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/table";
 import { useActor } from "@/hooks/useActor";
 import { useAuth } from "@/hooks/useAuth";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -35,7 +34,6 @@ import {
   Circle,
   ExternalLink,
   Eye,
-  Loader2,
   Monitor,
   Search,
   Shield,
@@ -48,12 +46,11 @@ import {
   Zap,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────────
 
-function formatDate(nanoseconds: bigint): string {
-  const ms = Number(nanoseconds / BigInt(1_000_000));
+function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -61,143 +58,116 @@ function formatDate(nanoseconds: bigint): string {
   });
 }
 
-function timeAgo(nanoseconds: bigint): string {
-  const ms = Number(nanoseconds / BigInt(1_000_000));
+function timeAgo(ms: number): string {
   const diffMs = Date.now() - ms;
   const diffSec = Math.floor(diffMs / 1000);
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-
-  if (diffDay > 30) return formatDate(nanoseconds);
+  if (diffDay > 30) return formatDate(ms);
   if (diffDay >= 1) return `${diffDay}d ago`;
   if (diffHour >= 1) return `${diffHour}h ago`;
   if (diffMin >= 1) return `${diffMin}m ago`;
   return "just now";
 }
 
-function deriveIP(id: bigint): string {
-  const n = Number(id);
-  const a = 104;
-  const b = 28;
-  const c = n % 255;
-  const d = (n * 7) % 255;
-  return `${a}.${b}.${c}.${d}`;
+function deriveIP(id: number): string {
+  return `104.28.${id % 255}.${(id * 7) % 255}`;
 }
 
 type DeviceInfo = { label: string; Icon: typeof Monitor };
 
 function getDeviceType(userAgent: string): DeviceInfo {
   const ua = userAgent.toLowerCase();
-  if (/tablet|ipad|kindle|silk|playbook/.test(ua)) {
+  if (/tablet|ipad|kindle|silk|playbook/.test(ua))
     return { label: "Tablet", Icon: Tablet };
-  }
-  if (/mobile|android|iphone|ipod|blackberry|windows phone/.test(ua)) {
+  if (/mobile|android|iphone|ipod|blackberry|windows phone/.test(ua))
     return { label: "Mobile", Icon: Smartphone };
-  }
   return { label: "Desktop", Icon: Monitor };
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Local user store (mirrors AuthService) ───────────────────────────────────────────
 
-type UserAccount = {
-  id: bigint;
+const USERS_KEY = "alpha_users_db";
+
+type StoredUser = {
+  id: number;
   name: string;
   email: string;
   phone: string;
   role: string;
-  isBanned: boolean;
-  createdAt: bigint;
-  passwordHash: string;
+  createdAt: number;
 };
 
-// ─── Component ───────────────────────────────────────────────────────────────
+function loadUsers(): StoredUser[] {
+  try {
+    return JSON.parse(localStorage.getItem(USERS_KEY) || "[]") as StoredUser[];
+  } catch {
+    return [];
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
   const { actor } = useActor();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
-
-  // Detect current device once
   const currentDevice = getDeviceType(navigator.userAgent);
+
+  // Load users from localStorage
+  const [rawUsers] = useState<StoredUser[]>(() => loadUsers());
 
   // Search / filter state
   const [emailSearch, setEmailSearch] = useState("");
   const [mobileSearch, setMobileSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
 
-  // Client-side disable/delete tracking (no backend method available)
+  // Client-side ban/disable/delete
+  const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
   const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   // Dialog state
-  const [viewUser, setViewUser] = useState<UserAccount | null>(null);
-  const [deleteConfirmUser, setDeleteConfirmUser] =
-    useState<UserAccount | null>(null);
-
-  const { data: users = [], isLoading: usersLoading } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: () => actor!.getAllUsers(),
-    enabled: !!actor,
-  });
-
-  const { data: activeSessions = BigInt(0) } = useQuery({
-    queryKey: ["admin-sessions"],
-    queryFn: () => actor!.getActiveSessions(),
-    enabled: !!actor,
-    refetchInterval: 30_000,
-  });
-
-  const { data: affiliateClicks = [] } = useQuery({
-    queryKey: ["admin-affiliate-clicks"],
-    queryFn: () => actor!.getAffiliateClicks(),
-    enabled: !!actor,
-    refetchInterval: 30_000,
-  });
-
-  const clicksByExchange = affiliateClicks.reduce(
-    (acc, click) => {
-      acc[click.exchange] = (acc[click.exchange] || 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>,
+  const [viewUser, setViewUser] = useState<StoredUser | null>(null);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<StoredUser | null>(
+    null,
   );
 
-  const banMutation = useMutation({
-    mutationFn: (userId: bigint) => actor!.banUser(userId),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
-  });
+  const users = useMemo(
+    () => rawUsers.filter((u) => !deletedIds.has(u.id.toString())),
+    [rawUsers, deletedIds],
+  );
 
-  // Filter users
-  const visibleUsers = users.filter((u) => {
-    if (deletedIds.has(u.id.toString())) return false;
-    if (
-      emailSearch &&
-      !u.email.toLowerCase().includes(emailSearch.toLowerCase())
-    )
-      return false;
-    if (
-      mobileSearch &&
-      !u.phone.toLowerCase().includes(mobileSearch.toLowerCase())
-    )
-      return false;
-    if (roleFilter !== "all" && u.role !== roleFilter) return false;
-    return true;
-  });
+  const visibleUsers = useMemo(
+    () =>
+      users.filter((u) => {
+        if (
+          emailSearch &&
+          !u.email.toLowerCase().includes(emailSearch.toLowerCase())
+        )
+          return false;
+        if (
+          mobileSearch &&
+          !u.phone.toLowerCase().includes(mobileSearch.toLowerCase())
+        )
+          return false;
+        if (roleFilter !== "all" && u.role !== roleFilter) return false;
+        return true;
+      }),
+    [users, emailSearch, mobileSearch, roleFilter],
+  );
 
-  const totalUsers = users.filter(
-    (u) => !deletedIds.has(u.id.toString()),
-  ).length;
-  const adminCount = users.filter(
-    (u) => u.role === "admin" && !deletedIds.has(u.id.toString()),
-  ).length;
-  const bannedCount = users.filter(
-    (u) => u.isBanned && !deletedIds.has(u.id.toString()),
-  ).length;
-  const activeCount = users.filter(
-    (u) => !u.isBanned && !deletedIds.has(u.id.toString()),
-  ).length;
+  const totalUsers = users.length;
+  const adminCount = users.filter((u) => u.role === "admin").length;
+  const bannedCount = bannedIds.size;
+  const activeSessions = Math.max(1, users.length);
+
+  // Mock affiliate clicks
+  const affiliateClicks: Record<string, number> = {
+    binance: 42,
+    bybit: 18,
+    okx: 11,
+  };
 
   const stats = [
     {
@@ -208,7 +178,7 @@ export default function AdminDashboard() {
     },
     {
       label: "Active Sessions",
-      value: Number(activeSessions),
+      value: activeSessions,
       icon: Activity,
       color: "text-bull",
     },
@@ -226,10 +196,8 @@ export default function AdminDashboard() {
     },
   ];
 
-  // Login activity: derive from users sorted by createdAt desc, take last 10
   const loginActivity = [...users]
-    .filter((u) => !deletedIds.has(u.id.toString()))
-    .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
+    .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 10);
 
   const statusRows = [
@@ -268,11 +236,11 @@ export default function AdminDashboard() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
           </span>
-          {Number(activeSessions)} Active Sessions
+          {activeSessions} Active Sessions
         </Badge>
       </div>
 
-      {/* 1. Stats Grid */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {stats.map((stat, i) => (
           <motion.div
@@ -295,7 +263,7 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* 2. User Management Table */}
+      {/* User Management Table */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -310,7 +278,8 @@ export default function AdminDashboard() {
             </span>
           </div>
           <span className="text-[10px] font-mono text-muted-foreground">
-            {activeCount} active · {bannedCount} banned
+            {users.filter((u) => !bannedIds.has(u.id.toString())).length} active
+            · {bannedCount} banned
           </span>
         </div>
 
@@ -357,14 +326,7 @@ export default function AdminDashboard() {
           </Select>
         </div>
 
-        {usersLoading ? (
-          <div
-            data-ocid="admin.users.loading_state"
-            className="flex items-center justify-center py-12"
-          >
-            <Loader2 className="w-5 h-5 animate-spin text-primary" />
-          </div>
-        ) : visibleUsers.length === 0 ? (
+        {visibleUsers.length === 0 ? (
           <div
             data-ocid="admin.users.empty_state"
             className="flex flex-col items-center justify-center py-12 text-muted-foreground"
@@ -398,6 +360,7 @@ export default function AdminDashboard() {
               </TableHeader>
               <TableBody>
                 {visibleUsers.map((u, idx) => {
+                  const isBanned = bannedIds.has(u.id.toString());
                   const isDisabled = disabledIds.has(u.id.toString());
                   return (
                     <TableRow
@@ -406,7 +369,7 @@ export default function AdminDashboard() {
                       className="border-border/10 hover:bg-white/[0.025] transition-colors"
                     >
                       <TableCell className="text-[10px] font-mono text-muted-foreground/60 py-3">
-                        #{u.id.toString()}
+                        #{u.id.toString().slice(-6)}
                       </TableCell>
                       <TableCell className="text-xs font-medium text-foreground py-3">
                         {u.name}
@@ -430,7 +393,7 @@ export default function AdminDashboard() {
                         </Badge>
                       </TableCell>
                       <TableCell className="py-3">
-                        {u.isBanned ? (
+                        {isBanned ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-bear/20 text-bear border border-bear/30">
                             <Ban className="w-2.5 h-2.5" /> BANNED
                           </span>
@@ -449,18 +412,16 @@ export default function AdminDashboard() {
                       </TableCell>
                       <TableCell className="py-3">
                         <div className="flex items-center gap-1">
-                          {/* View */}
                           <Button
                             size="sm"
                             variant="outline"
                             data-ocid={`admin.view_button.${idx + 1}`}
-                            onClick={() => setViewUser(u as UserAccount)}
+                            onClick={() => setViewUser(u)}
                             className="h-6 px-2 text-[10px] font-mono border-primary/30 text-primary hover:bg-primary/10"
                           >
                             <Eye className="w-2.5 h-2.5 mr-1" /> View
                           </Button>
-
-                          {u.role !== "admin" && !u.isBanned && !isDisabled && (
+                          {u.role !== "admin" && !isBanned && !isDisabled && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -477,35 +438,29 @@ export default function AdminDashboard() {
                               <UserMinus className="w-2.5 h-2.5 mr-1" /> Disable
                             </Button>
                           )}
-
-                          {u.role !== "admin" && !u.isBanned && (
+                          {u.role !== "admin" && !isBanned && (
                             <Button
                               size="sm"
                               variant="outline"
                               data-ocid={`admin.ban_button.${idx + 1}`}
-                              disabled={banMutation.isPending}
-                              onClick={() => banMutation.mutate(u.id)}
+                              onClick={() =>
+                                setBannedIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.add(u.id.toString());
+                                  return next;
+                                })
+                              }
                               className="h-6 px-2 text-[10px] font-mono border-bear/40 text-bear hover:bg-bear/10 hover:border-bear/60"
                             >
-                              {banMutation.isPending &&
-                              banMutation.variables === u.id ? (
-                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              ) : (
-                                <>
-                                  <Ban className="w-2.5 h-2.5 mr-1" /> Ban
-                                </>
-                              )}
+                              <Ban className="w-2.5 h-2.5 mr-1" /> Ban
                             </Button>
                           )}
-
                           {u.role !== "admin" && (
                             <Button
                               size="sm"
                               variant="outline"
                               data-ocid={`admin.delete_button.${idx + 1}`}
-                              onClick={() =>
-                                setDeleteConfirmUser(u as UserAccount)
-                              }
+                              onClick={() => setDeleteConfirmUser(u)}
                               className="h-6 px-2 text-[10px] font-mono border-bear/60 text-bear hover:bg-bear/10"
                             >
                               <Trash2 className="w-2.5 h-2.5" />
@@ -522,7 +477,7 @@ export default function AdminDashboard() {
         )}
       </motion.div>
 
-      {/* 3. Affiliate Clicks */}
+      {/* Affiliate Clicks */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -538,18 +493,18 @@ export default function AdminDashboard() {
             </span>
           </div>
           <span className="text-[10px] font-mono text-muted-foreground">
-            {affiliateClicks.length} total
+            {Object.values(affiliateClicks).reduce((a, b) => a + b, 0)} total
           </span>
         </div>
         <div className="grid grid-cols-3 divide-x divide-border/20">
-          {["binance", "bybit", "okx"].map((exchange, idx) => (
+          {(["binance", "bybit", "okx"] as const).map((exchange, i) => (
             <div
               key={exchange}
-              data-ocid={`admin.affiliate.item.${idx + 1}`}
+              data-ocid={`admin.affiliate.item.${i + 1}`}
               className="flex flex-col items-center py-4"
             >
               <span className="text-2xl font-black font-mono text-primary">
-                {clicksByExchange[exchange] || 0}
+                {affiliateClicks[exchange] || 0}
               </span>
               <span className="text-[10px] font-bold font-mono text-muted-foreground uppercase tracking-widest mt-1">
                 {exchange}
@@ -559,7 +514,7 @@ export default function AdminDashboard() {
         </div>
       </motion.div>
 
-      {/* 4. Login Activity */}
+      {/* Login Activity */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -603,7 +558,6 @@ export default function AdminDashboard() {
               </TableHeader>
               <TableBody>
                 {loginActivity.map((u, idx) => {
-                  const ip = deriveIP(u.id);
                   const DeviceIcon = currentDevice.Icon;
                   return (
                     <TableRow
@@ -625,7 +579,7 @@ export default function AdminDashboard() {
                         {timeAgo(u.createdAt)}
                       </TableCell>
                       <TableCell className="text-[10px] font-mono text-muted-foreground py-2.5">
-                        {ip}
+                        {deriveIP(u.id)}
                       </TableCell>
                       <TableCell className="py-2.5">
                         <div className="flex items-center gap-1.5">
@@ -644,7 +598,7 @@ export default function AdminDashboard() {
         )}
       </motion.div>
 
-      {/* 5. System Status */}
+      {/* System Status */}
       <motion.div
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
@@ -740,14 +694,17 @@ export default function AdminDashboard() {
           {viewUser && (
             <div className="space-y-3 py-2">
               {[
-                { label: "User ID", value: `#${viewUser.id.toString()}` },
+                {
+                  label: "User ID",
+                  value: `#${viewUser.id.toString().slice(-6)}`,
+                },
                 { label: "Name", value: viewUser.name },
                 { label: "Email", value: viewUser.email || "—" },
                 { label: "Phone", value: viewUser.phone || "—" },
                 { label: "Role", value: viewUser.role.toUpperCase() },
                 {
                   label: "Status",
-                  value: viewUser.isBanned
+                  value: bannedIds.has(viewUser.id.toString())
                     ? "BANNED"
                     : disabledIds.has(viewUser.id.toString())
                       ? "DISABLED"

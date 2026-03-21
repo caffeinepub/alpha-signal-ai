@@ -10,104 +10,6 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface AISignal {
-  'direction' : string,
-  'takeProfit' : number,
-  'reasoning' : string,
-  'stopLoss' : number,
-  'entryPrice' : number,
-  'confidence' : bigint,
-  'riskLevel' : string,
-  'symbol' : string,
-}
-export interface Candle {
-  'low' : number,
-  'high' : number,
-  'close' : number,
-  'open' : number,
-  'volume' : number,
-  'timestamp' : bigint,
-}
-export interface Gainer {
-  'name' : string,
-  'price' : number,
-  'changePercent' : number,
-  'symbol' : string,
-}
-export interface GeminiAnalysis {
-  'rawText' : string,
-  'strategicInsight' : string,
-  'signal' : string,
-  'confidence' : bigint,
-  'marketBias' : string,
-}
-export interface LiquidationZone {
-  'priceLevel' : number,
-  'longLiquidations' : number,
-  'shortLiquidations' : number,
-  'intensity' : bigint,
-}
-export interface MarketAsset {
-  'change24h' : number,
-  'name' : string,
-  'volume' : number,
-  'low24h' : number,
-  'high24h' : number,
-  'price' : number,
-  'symbol' : string,
-}
-export interface MarketSentiment {
-  'sentiment' : string,
-  'fearGreedLabel' : string,
-  'fearGreedIndex' : bigint,
-}
-export interface PerformanceStats {
-  'bestTrade' : number,
-  'worstTrade' : number,
-  'totalTrades' : bigint,
-  'avgLoss' : number,
-  'totalPnl' : number,
-  'winRate' : number,
-  'avgWin' : number,
-}
-export interface SmcSignal {
-  'priceLevel' : number,
-  'direction' : string,
-  'description' : string,
-  'strength' : bigint,
-  'symbol' : string,
-  'signalType' : string,
-}
-export interface TradeRecord {
-  'id' : bigint,
-  'pnl' : number,
-  'direction' : string,
-  'pnlPercent' : number,
-  'timestamp' : bigint,
-  'entryPrice' : number,
-  'exitPrice' : number,
-  'outcome' : string,
-  'symbol' : string,
-}
-export interface TransformationInput {
-  'context' : Uint8Array,
-  'response' : http_request_result,
-}
-export interface TransformationOutput {
-  'status' : bigint,
-  'body' : Uint8Array,
-  'headers' : Array<http_header>,
-}
-export interface UserAccount {
-  'id' : bigint,
-  'name' : string,
-  'createdAt' : bigint,
-  'role' : string,
-  'email' : string,
-  'isBanned' : boolean,
-  'passwordHash' : string,
-  'phone' : string,
-}
 export interface UserProfile {
   'name' : string,
   'subscriptionTier' : string,
@@ -116,82 +18,62 @@ export interface UserProfile {
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
-export interface http_header { 'value' : string, 'name' : string }
-export interface http_request_result {
-  'status' : bigint,
-  'body' : Uint8Array,
-  'headers' : Array<http_header>,
+export type VideoDifficulty = { 'beginner' : null } |
+  { 'advanced' : null };
+export interface _CaffeineStorageCreateCertificateResult {
+  'method' : string,
+  'blob_hash' : string,
 }
-export interface AffiliateClick {
-  'exchange' : string,
-  'assetSymbol' : string,
-  'timestamp' : bigint,
+export interface _CaffeineStorageRefillInformation {
+  'proposed_top_up_amount' : [] | [bigint],
 }
-
+export interface _CaffeineStorageRefillResult {
+  'success' : [] | [boolean],
+  'topped_up_amount' : [] | [bigint],
+}
 export interface _SERVICE {
+  '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
+  '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
+  '_caffeineStorageConfirmBlobDeletion' : ActorMethod<
+    [Array<Uint8Array>],
+    undefined
+  >,
+  '_caffeineStorageCreateCertificate' : ActorMethod<
+    [string],
+    _CaffeineStorageCreateCertificateResult
+  >,
+  '_caffeineStorageRefillCashier' : ActorMethod<
+    [[] | [_CaffeineStorageRefillInformation]],
+    _CaffeineStorageRefillResult
+  >,
+  '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'analyzeWithGemini' : ActorMethod<[string], string>,
+  'addVideo' : ActorMethod<
+    [string, string, string, string, VideoDifficulty],
+    bigint
+  >,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
-  'banUser' : ActorMethod<[bigint], { 'ok' : null } | { 'err' : string }>,
-  'getAISignals' : ActorMethod<[], Array<AISignal>>,
-  'getActiveSessions' : ActorMethod<[], bigint>,
-  'getAllUsers' : ActorMethod<[], Array<UserAccount>>,
+  'deleteVideo' : ActorMethod<[bigint], undefined>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
-  'getCandlestickData' : ActorMethod<[string, string], Array<Candle>>,
-  'getLiquidationData' : ActorMethod<[string], Array<LiquidationZone>>,
-  'getMarketData' : ActorMethod<[], Array<MarketAsset>>,
-  'getMarketSentiment' : ActorMethod<[], MarketSentiment>,
-  'getPerformanceStats' : ActorMethod<[], PerformanceStats>,
-  'getSentimentFromNews' : ActorMethod<[Array<string>], GeminiAnalysis>,
-  'getSmcSignals' : ActorMethod<[], Array<SmcSignal>>,
-  'getTopGainers' : ActorMethod<[], Array<Gainer>>,
-  'getTopLosers' : ActorMethod<[], Array<Gainer>>,
-  'getTradeHistory' : ActorMethod<[], Array<TradeRecord>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getVideos' : ActorMethod<
+    [],
+    Array<
+      {
+        'id' : bigint,
+        'title' : string,
+        'thumbnailUrl' : string,
+        'difficulty' : string,
+        'description' : string,
+        'uploaderPrincipal' : Uint8Array,
+        'videoUrl' : string,
+        'uploaded_at' : bigint,
+      }
+    >
+  >,
   'isCallerAdmin' : ActorMethod<[], boolean>,
-  'loginWithEmail' : ActorMethod<
-    [string, string],
-    { 'ok' : { 'token' : string, 'name' : string, 'role' : string } } |
-      { 'err' : string }
-  >,
-  'logoutSession' : ActorMethod<[string], undefined>,
-  'refreshMarketData' : ActorMethod<[], Array<MarketAsset>>,
-  'registerUser' : ActorMethod<
-    [string, string, string, string],
-    { 'ok' : bigint } |
-      { 'err' : string }
-  >,
-  'requestOTP' : ActorMethod<[string], { 'ok' : string } | { 'err' : string }>,
-  'researchWithGemini' : ActorMethod<[string, string], string>,
-  'resetPasswordWithOTP' : ActorMethod<
-    [string, string, string],
-    { 'ok' : null } |
-      { 'err' : string }
-  >,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
-  'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
-  'healthCheck' : ActorMethod<[], boolean>,
-  'validateSession' : ActorMethod<
-    [string],
-    {
-        'ok' : {
-          'userId' : bigint,
-          'name' : string,
-          'role' : string,
-          'email' : string,
-          'phone' : string,
-        }
-      } |
-      { 'err' : string }
-  >,
-  'trackAffiliateClick' : ActorMethod<[string, string], undefined>,
-  'getAffiliateClicks' : ActorMethod<[], Array<AffiliateClick>>,
-  'verifyOTP' : ActorMethod<
-    [string, string],
-    { 'ok' : { 'token' : string, 'name' : string, 'role' : string } } |
-      { 'err' : string }
-  >,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

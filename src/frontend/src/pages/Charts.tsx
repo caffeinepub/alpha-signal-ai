@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Lock,
   MinusCircle,
   Shield,
   Zap,
@@ -101,6 +102,20 @@ function TradingViewWidget({ symbol, interval }: TradingViewWidgetProps) {
           hide_legend: false,
           save_image: false,
           allow_symbol_change: false,
+          hide_side_toolbar: false,
+          withdateranges: true,
+          studies: [
+            { id: "MASimple@tv-basicstudies", inputs: { length: 20 } },
+            { id: "MASimple@tv-basicstudies", inputs: { length: 50 } },
+            { id: "MASimple@tv-basicstudies", inputs: { length: 200 } },
+            { id: "RSI@tv-basicstudies" },
+            { id: "SuperTrend@tv-basicstudies" },
+          ],
+          studies_overrides: {
+            "moving average.plot.color.0": "#00d4ff",
+            "moving average.plot.color.1": "#f59e0b",
+            "moving average.plot.color.2": "#8b5cf6",
+          },
           container_id: containerId,
         });
       } catch (_e) {
@@ -273,6 +288,27 @@ function ScoreRow({
 
 function SignalPanel({ signal }: { signal: EngineSignal }) {
   const [breakdownOpen, setBreakdownOpen] = useState(true);
+  const [lockCountdown, setLockCountdown] = useState<string | null>(null);
+
+  useEffect(() => {
+    function computeCountdown() {
+      if (!signal.lockedUntil) {
+        setLockCountdown(null);
+        return;
+      }
+      const remaining = signal.lockedUntil.getTime() - Date.now();
+      if (remaining <= 0) {
+        setLockCountdown(null);
+        return;
+      }
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      setLockCountdown(`${m}m ${String(s).padStart(2, "0")}s`);
+    }
+    computeCountdown();
+    const id = setInterval(computeCountdown, 1000);
+    return () => clearInterval(id);
+  }, [signal.lockedUntil]);
   const dir = DIRECTION_CONFIG[signal.direction];
   const DirIcon = dir.icon;
   const risk = RISK_CONFIG[signal.riskLevel];
@@ -331,6 +367,16 @@ function SignalPanel({ signal }: { signal: EngineSignal }) {
               <Clock className="w-2.5 h-2.5" />
               {timeSince(signal.lastUpdated)}
             </div>
+            {lockCountdown && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-mono font-bold text-amber-400"
+              >
+                <Lock className="w-2.5 h-2.5" />
+                Signal locked: {lockCountdown}
+              </motion.div>
+            )}
           </div>
         </div>
 
@@ -659,14 +705,43 @@ export default function Charts() {
             Powered by TradingView
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* EMA color legend */}
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-4 h-0.5 rounded-full"
+              style={{ backgroundColor: "#00d4ff" }}
+            />
+            <span className="text-muted-foreground font-mono text-[10px]">
+              EMA20
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-4 h-0.5 rounded-full"
+              style={{ backgroundColor: "#f59e0b" }}
+            />
+            <span className="text-muted-foreground font-mono text-[10px]">
+              EMA50
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-4 h-0.5 rounded-full"
+              style={{ backgroundColor: "#8b5cf6" }}
+            />
+            <span className="text-muted-foreground font-mono text-[10px]">
+              EMA200
+            </span>
+          </div>
+          <div className="w-px h-3 bg-border/40" />
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-bull" />
-            <span className="text-muted-foreground">BUY signal</span>
+            <span className="text-muted-foreground">BUY</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-bear" />
-            <span className="text-muted-foreground">SELL signal</span>
+            <span className="text-muted-foreground">SELL</span>
           </div>
         </div>
       </div>

@@ -15,11 +15,10 @@ import AdminDashboard from "./pages/AdminDashboard";
 import Charts from "./pages/Charts";
 import Dashboard from "./pages/Dashboard";
 import Liquidation from "./pages/Liquidation";
-import LoginPage from "./pages/LoginPage";
 import Performance from "./pages/Performance";
 import Research from "./pages/Research";
 import Signals from "./pages/Signals";
-import SignupPage from "./pages/SignupPage";
+import VideosPage from "./pages/VideosPage";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/": {
@@ -50,6 +49,10 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
     title: "Admin Dashboard",
     subtitle: "User management and platform analytics",
   },
+  "/videos": {
+    title: "Video Learning",
+    subtitle: "Educational trading and market analysis videos",
+  },
 };
 
 function AppLayout() {
@@ -73,7 +76,6 @@ function AppLayout() {
   );
 }
 
-// Root route with layout (protected)
 const rootRoute = createRootRoute({
   component: AppLayout,
 });
@@ -142,23 +144,20 @@ const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
   component: () => (
-    <ProtectedRoute requiredRole="admin">
+    <ProtectedRoute>
       <AdminDashboard />
     </ProtectedRoute>
   ),
 });
 
-// Auth routes - no layout wrapper needed since they render full-page
-const loginRoute = createRoute({
+const videosRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/login",
-  component: LoginPage,
-});
-
-const signupRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/signup",
-  component: SignupPage,
+  path: "/videos",
+  component: () => (
+    <ProtectedRoute>
+      <VideosPage />
+    </ProtectedRoute>
+  ),
 });
 
 const routeTree = rootRoute.addChildren([
@@ -169,8 +168,7 @@ const routeTree = rootRoute.addChildren([
   performanceRoute,
   researchRoute,
   adminRoute,
-  loginRoute,
-  signupRoute,
+  videosRoute,
 ]);
 
 const router = createRouter({ routeTree });

@@ -1,133 +1,152 @@
 import { useQuery } from "@tanstack/react-query";
-import type {
-  AISignal,
-  Candle,
-  Gainer,
-  LiquidationZone,
-  MarketAsset,
-  MarketSentiment,
-  PerformanceStats,
-  SmcSignal,
-  TradeRecord,
-} from "../backend.d";
-import { useActor } from "./useActor";
+
+// Local type stubs for missing backend types
+export interface MarketAsset {
+  symbol: string;
+  name: string;
+  price: number;
+  change24h: number;
+  volume: number;
+  high24h: number;
+  low24h: number;
+}
+export interface AISignal {
+  id: string;
+  symbol: string;
+  signal: string;
+  confidence: number;
+  timestamp: number;
+  direction: string;
+  riskLevel: string;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  reasoning: string;
+}
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+export interface Gainer {
+  symbol: string;
+  name: string;
+  change: number;
+  price: number;
+  changePercent: number;
+}
+export interface LiquidationZone {
+  price: number;
+  size: number;
+  side: string;
+  priceLevel: number;
+  longLiquidations: number;
+  shortLiquidations: number;
+  intensity: number;
+}
+export interface MarketSentiment {
+  score: number;
+  label: string;
+  fearGreedIndex: number;
+  fearGreedLabel: string;
+}
+export interface PerformanceStats {
+  totalTrades: number;
+  winRate: number;
+  pnl: number;
+  totalPnl: number;
+  avgWin: number;
+  avgLoss: number;
+  bestTrade: number;
+}
+export interface SmcSignal {
+  id: string;
+  signal: string;
+  level: number;
+}
+export interface TradeRecord {
+  id: string;
+  symbol: string;
+  pnl: number;
+  timestamp: number;
+  entryPrice: number;
+  exitPrice: number;
+  direction: string;
+  size: number;
+  pnlPercent: number;
+  outcome: string;
+}
 
 export function useMarketData() {
-  const { actor, isFetching } = useActor();
   return useQuery<MarketAsset[]>({
     queryKey: ["marketData"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.refreshMarketData();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
-export function useCandlestickData(symbol: string, timeframe: string) {
-  const { actor, isFetching } = useActor();
+export function useCandlestickData(_symbol: string, _timeframe: string) {
   return useQuery<Candle[]>({
-    queryKey: ["candlestick", symbol, timeframe],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getCandlestickData(symbol, timeframe);
-    },
-    enabled: !!actor && !isFetching,
+    queryKey: ["candlestick"],
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
 export function useAISignals() {
-  const { actor, isFetching } = useActor();
   return useQuery<AISignal[]>({
     queryKey: ["aiSignals"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAISignals();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
-export function useLiquidationData(symbol: string) {
-  const { actor, isFetching } = useActor();
+export function useLiquidationData(_symbol: string) {
   return useQuery<LiquidationZone[]>({
-    queryKey: ["liquidation", symbol],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getLiquidationData(symbol);
-    },
-    enabled: !!actor && !isFetching,
+    queryKey: ["liquidation"],
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
 export function useMarketSentiment() {
-  const { actor, isFetching } = useActor();
   return useQuery<MarketSentiment | null>({
-    queryKey: ["marketSentiment"],
-    queryFn: async () => {
-      if (!actor) return null;
-      return actor.getMarketSentiment();
-    },
-    enabled: !!actor && !isFetching,
+    queryKey: ["sentiment"],
+    queryFn: async () => null,
+    enabled: false,
   });
 }
-
 export function useTopGainers() {
-  const { actor, isFetching } = useActor();
   return useQuery<Gainer[]>({
     queryKey: ["topGainers"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getTopGainers();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
 export function useTopLosers() {
-  const { actor, isFetching } = useActor();
   return useQuery<Gainer[]>({
     queryKey: ["topLosers"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getTopLosers();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
 export function usePerformanceStats() {
-  const { actor, isFetching } = useActor();
   return useQuery<PerformanceStats | null>({
     queryKey: ["performanceStats"],
-    queryFn: async () => {
-      if (!actor) return null;
-      return actor.getPerformanceStats();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => null,
+    enabled: false,
   });
 }
-
 export function useTradeHistory() {
-  const { actor, isFetching } = useActor();
   return useQuery<TradeRecord[]>({
     queryKey: ["tradeHistory"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getTradeHistory();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }
-
 export function useSmcSignals() {
-  const { actor, isFetching } = useActor();
   return useQuery<SmcSignal[]>({
     queryKey: ["smcSignals"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getSmcSignals();
-    },
-    enabled: !!actor && !isFetching,
+    queryFn: async () => [],
+    enabled: false,
   });
 }

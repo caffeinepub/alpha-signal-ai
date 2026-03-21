@@ -1,5 +1,4 @@
 import { ExternalLink } from "lucide-react";
-import { useActor } from "../hooks/useActor";
 
 interface Exchange {
   name: string;
@@ -41,17 +40,8 @@ interface Props {
   assetSymbol: string;
 }
 
-export function AffiliateLinksSection({ assetSymbol }: Props) {
-  const { actor } = useActor();
-
-  const handleClick = async (exchange: Exchange) => {
-    if (actor) {
-      try {
-        await actor.trackAffiliateClick(exchange.name, assetSymbol);
-      } catch {
-        // Silent fail - tracking is non-critical
-      }
-    }
+export function AffiliateLinksSection({ assetSymbol: _assetSymbol }: Props) {
+  const handleClick = (exchange: Exchange) => {
     window.open(exchange.url, "_blank", "noopener,noreferrer");
   };
 

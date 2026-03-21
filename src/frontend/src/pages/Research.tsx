@@ -1,15 +1,19 @@
 import {
   AlertTriangle,
   BookOpen,
+  Brain,
   FlaskConical,
+  Globe,
   Loader2,
   RefreshCw,
   ShieldAlert,
+  Target,
+  TrendingUp,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { callGeminiAnalysis } from "../utils/geminiClient";
+import { callGeminiResearch } from "../utils/geminiClient";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -170,6 +174,124 @@ function LoadingProgress({ step }: { step: number }) {
 // ────────────────────────────────────────────────────────────
 // Main page
 // ────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────
+// Structured section parser
+// ────────────────────────────────────────────────────────────
+
+interface ResearchSections {
+  executiveSummary: string;
+  marketContext: string;
+  technicalAnalysis: string;
+  tradeBias: string;
+  confidence: number;
+  entry: string;
+  sl: string;
+  tp1: string;
+  tp2: string;
+}
+
+function parseResearchSections(rawText: string): ResearchSections {
+  const sections: ResearchSections = {
+    executiveSummary: "",
+    marketContext: "",
+    technicalAnalysis: "",
+    tradeBias: "NEUTRAL",
+    confidence: 50,
+    entry: "",
+    sl: "",
+    tp1: "",
+    tp2: "",
+  };
+
+  // Extract trade bias
+  if (/STRONG BUY/i.test(rawText)) sections.tradeBias = "STRONG BUY";
+  else if (/STRONG SELL/i.test(rawText)) sections.tradeBias = "STRONG SELL";
+  else if (/\bBUY\b/i.test(rawText)) sections.tradeBias = "BUY";
+  else if (/\bSELL\b/i.test(rawText)) sections.tradeBias = "SELL";
+  else if (/BULLISH/i.test(rawText)) sections.tradeBias = "BUY";
+  else if (/BEARISH/i.test(rawText)) sections.tradeBias = "SELL";
+
+  // Extract confidence
+  const confMatch = rawText.match(/confidence[:\s]+(\d+)/i);
+  if (confMatch)
+    sections.confidence = Math.min(100, Number.parseInt(confMatch[1]));
+
+  // Extract price levels
+  const entryMatch = rawText.match(/entry[:\s]+\$?([\d,]+\.?\d*)/i);
+  if (entryMatch) sections.entry = entryMatch[1];
+  const slMatch = rawText.match(/(?:stop.?loss|sl)[:\s]+\$?([\d,]+\.?\d*)/i);
+  if (slMatch) sections.sl = slMatch[1];
+  const tp1Match = rawText.match(/(?:tp1|target.?1)[:\s]+\$?([\d,]+\.?\d*)/i);
+  if (tp1Match) sections.tp1 = tp1Match[1];
+  const tp2Match = rawText.match(/(?:tp2|target.?2)[:\s]+\$?([\d,]+\.?\d*)/i);
+  if (tp2Match) sections.tp2 = tp2Match[1];
+
+  // Split into sections by headers
+  const lines = rawText.split("\n");
+  let currentSection = "executiveSummary";
+  const sectionBuffer: string[] = [];
+
+  for (const line of lines) {
+    if (/executive.?summary|overview|summary/i.test(line) && line.length < 60) {
+      currentSection = "executiveSummary";
+      continue;
+    }
+    if (/market.?context|sentiment|macro/i.test(line) && line.length < 60) {
+      if (currentSection === "executiveSummary")
+        sections.executiveSummary = sectionBuffer.splice(0).join("\n").trim();
+      currentSection = "marketContext";
+      continue;
+    }
+    if (
+      /technical.?analysis|structure|technical/i.test(line) &&
+      line.length < 60
+    ) {
+      if (currentSection === "marketContext")
+        sections.marketContext = sectionBuffer.splice(0).join("\n").trim();
+      else if (currentSection === "executiveSummary")
+        sections.executiveSummary = sectionBuffer.splice(0).join("\n").trim();
+      currentSection = "technicalAnalysis";
+      continue;
+    }
+    sectionBuffer.push(line);
+  }
+
+  // Fill last active section
+  const remaining = sectionBuffer.join("\n").trim();
+  if (currentSection === "technicalAnalysis")
+    sections.technicalAnalysis = remaining;
+  else if (currentSection === "marketContext")
+    sections.marketContext = remaining;
+  else sections.executiveSummary = remaining;
+
+  // Fallback: if sections empty, split into thirds
+  if (
+    !sections.executiveSummary &&
+    !sections.marketContext &&
+    !sections.technicalAnalysis
+  ) {
+    const third = Math.floor(rawText.length / 3);
+    sections.executiveSummary = rawText.substring(0, third).trim();
+    sections.marketContext = rawText.substring(third, third * 2).trim();
+    sections.technicalAnalysis = rawText.substring(third * 2).trim();
+  } else if (
+    !sections.marketContext &&
+    !sections.technicalAnalysis &&
+    sections.executiveSummary
+  ) {
+    const half = Math.floor(sections.executiveSummary.length / 2);
+    sections.technicalAnalysis = sections.executiveSummary
+      .substring(half)
+      .trim();
+    sections.executiveSummary = sections.executiveSummary
+      .substring(0, half)
+      .trim();
+  }
+
+  return sections;
+}
+
 export default function Research() {
   const [ticker, setTicker] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("Stock");
@@ -254,52 +376,30 @@ export default function Research() {
     setError(null);
 
     try {
-      const result = await callGeminiAnalysis(
+      const result = await callGeminiResearch(
         currentTicker.trim().toUpperCase(),
         currentType || "CRYPTO",
       );
 
-      // Map GeminiAnalysisResult to ResearchReport fields
-      const trend = (result.trend ?? "neutral").toUpperCase();
-      let overallRating = "HOLD";
-      if (trend.includes("BULL") || result.signal === "BUY")
-        overallRating = "BUY";
-      else if (trend.includes("BEAR") || result.signal === "SELL")
-        overallRating = "SELL";
-      else overallRating = "HOLD";
-
-      const priceTargets =
-        [
-          result.support_level && result.support_level !== "N/A"
-            ? `Support: ${result.support_level}`
-            : "",
-          result.resistance_level && result.resistance_level !== "N/A"
-            ? `Resistance: ${result.resistance_level}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" | ") || "See analysis above";
-
       const built: ResearchReport = {
         ticker: currentTicker.trim().toUpperCase(),
         assetType: currentType,
-        executiveSummary: result.summary || result.insight,
-        fundamentalHealth: `Market Type: ${currentType} | Confidence: ${result.confidence}% | Bias: ${result.bias}`,
-        technicalOutlook: `Trend: ${trend} | Signal: ${result.signal} | Confidence: ${result.confidence}%`,
-        priceTargets,
-        riskAssessment: "Refer to executive summary for risk context.",
-        keyCatalysts: "Refer to executive summary for key catalysts.",
-        overallRating,
-        rawText:
-          result.insight + (result.summary ? `\n\n${result.summary}` : ""),
+        executiveSummary: result.executiveSummary,
+        fundamentalHealth: result.marketContext,
+        technicalOutlook: result.technicalAnalysis,
+        priceTargets: result.tradeSetup,
+        riskAssessment: "",
+        keyCatalysts: "",
+        overallRating: result.overallRating,
+        rawText: result.rawText,
         generatedAt: new Date(),
       };
       setReport(built);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to generate report",
-      );
-      console.error("[Research] callGeminiAnalysis failed:", err);
+      const msg =
+        err instanceof Error ? err.message : "Failed to generate report";
+      setError(msg);
+      console.error("[Research] callGeminiResearch failed:", err);
     } finally {
       setIsLoading(false);
     }
@@ -542,131 +642,313 @@ export default function Research() {
 
       {/* ── Report ── */}
       <AnimatePresence>
-        {report && !isLoading && (
-          <motion.div
-            key="report"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-4"
-          >
-            {/* Disclaimer */}
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              data-ocid="research.disclaimer.panel"
-              className="flex items-start gap-3 p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/8"
-            >
-              <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold text-yellow-400 font-mono tracking-wide mb-0.5">
-                  AI-ESTIMATED DATA — NOT FINANCIAL ADVICE
-                </p>
-                <p className="text-xs text-yellow-300/70 leading-relaxed">
-                  Fundamental metrics are generated by Gemini 2.0 Flash based on
-                  training knowledge. This is not financial advice. Always
-                  verify with official sources before making investment
-                  decisions.
-                </p>
-              </div>
-            </motion.div>
+        {report &&
+          !isLoading &&
+          (() => {
+            const sections = parseResearchSections(
+              report.rawText || report.executiveSummary || "",
+            );
+            const biasColors: Record<
+              string,
+              { bg: string; border: string; text: string }
+            > = {
+              "STRONG BUY": {
+                bg: "bg-emerald-500/10",
+                border: "border-emerald-500/40",
+                text: "text-emerald-400",
+              },
+              BUY: {
+                bg: "bg-green-500/10",
+                border: "border-green-500/30",
+                text: "text-green-400",
+              },
+              SELL: {
+                bg: "bg-orange-500/10",
+                border: "border-orange-500/30",
+                text: "text-orange-400",
+              },
+              "STRONG SELL": {
+                bg: "bg-red-500/10",
+                border: "border-red-500/40",
+                text: "text-red-400",
+              },
+              NEUTRAL: {
+                bg: "bg-yellow-500/10",
+                border: "border-yellow-500/30",
+                text: "text-yellow-400",
+              },
+            };
+            const bias = sections.tradeBias;
+            const biasCfg = biasColors[bias] ?? biasColors.NEUTRAL;
 
-            {/* Overall Rating */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.1 }}
-              data-ocid="research.rating.card"
-              className={`trading-card p-6 flex flex-col items-center gap-2 ${ratingCfg.glow}`}
-            >
-              <span className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase">
-                Overall Rating
-              </span>
-              <span
-                className={`text-3xl font-black tracking-tight ${ratingCfg.color}`}
+            return (
+              <motion.div
+                key="report"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-4"
               >
-                {normalizedRating || report.overallRating}
-              </span>
-              <div
-                className={`flex items-center gap-2 px-3 py-1 rounded-md ${ratingCfg.bg} border ${ratingCfg.border}`}
-              >
-                <span
-                  className={`text-[10px] font-mono font-bold tracking-widest ${ratingCfg.color}`}
+                {/* Disclaimer */}
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  data-ocid="research.disclaimer.panel"
+                  className="flex items-start gap-3 p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/8"
                 >
-                  {report.ticker} · {report.assetType.toUpperCase()} ·
-                  GEMINI-2.0-FLASH
-                </span>
-              </div>
-              <span className="text-[9px] font-mono text-muted-foreground/50 mt-1">
-                Generated at{" "}
-                {report.generatedAt.toLocaleTimeString("en-US", {
-                  hour12: false,
-                })}
-                {nextRefreshIn !== null && (
-                  <span className="ml-2 text-primary/60">
-                    · Auto-refresh in {nextRefreshIn}s
-                  </span>
-                )}
-              </span>
-            </motion.div>
+                  <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold text-yellow-400 font-mono tracking-wide mb-0.5">
+                      AI-ESTIMATED DATA — NOT FINANCIAL ADVICE
+                    </p>
+                    <p className="text-xs text-yellow-300/70 leading-relaxed">
+                      Analysis generated by Gemini 2.0 Flash from training
+                      knowledge. Always verify with official sources.
+                    </p>
+                  </div>
+                </motion.div>
 
-            {/* Raw AI Analysis */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="relative overflow-hidden rounded-lg border border-primary/20 bg-card/60 backdrop-blur-sm p-5"
-              data-ocid="research.report.panel"
-            >
-              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary" />
-              <div className="flex items-center gap-2.5 mb-3">
-                <BookOpen className="w-4 h-4 text-primary" />
-                <span className="text-xs font-bold font-mono tracking-widest uppercase text-muted-foreground">
-                  AI Analysis
-                </span>
-                <div className="ml-auto flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-primary/60" />
-                  <span className="text-[9px] font-mono text-primary/60 tracking-widest">
-                    GEMINI-2.0-FLASH · RAW OUTPUT
-                  </span>
+                {/* Header row: Rating + meta */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.05 }}
+                  data-ocid="research.rating.card"
+                  className={`backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col sm:flex-row items-center gap-4 ${ratingCfg.glow}`}
+                >
+                  <div className="flex flex-col items-center gap-1 sm:border-r sm:border-border/40 sm:pr-6">
+                    <span className="text-[9px] font-mono text-muted-foreground tracking-widest uppercase">
+                      Overall Rating
+                    </span>
+                    <span
+                      className={`text-3xl font-black tracking-tight ${ratingCfg.color}`}
+                    >
+                      {normalizedRating || report.overallRating}
+                    </span>
+                  </div>
+                  <div className="flex-1 flex flex-wrap items-center gap-3">
+                    <div
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-md ${ratingCfg.bg} border ${ratingCfg.border}`}
+                    >
+                      <span
+                        className={`text-[10px] font-mono font-bold tracking-widest ${ratingCfg.color}`}
+                      >
+                        {report.ticker} · {report.assetType.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/30">
+                      <Zap className="w-3 h-3 text-primary" />
+                      <span className="text-[9px] font-mono font-bold text-primary tracking-widest">
+                        GEMINI-2.0-FLASH
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                      {report.generatedAt.toLocaleTimeString("en-US", {
+                        hour12: false,
+                      })}
+                      {nextRefreshIn !== null && (
+                        <span className="ml-2 text-primary/60">
+                          · refresh in {nextRefreshIn}s
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </motion.div>
+
+                {/* 4-card grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Executive Summary */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    data-ocid="research.report.panel"
+                    className="md:col-span-2 backdrop-blur-md bg-blue-500/5 border border-blue-500/20 rounded-xl p-5 relative overflow-hidden"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500" />
+                    <div className="flex items-center gap-2 mb-3">
+                      <Brain className="w-4 h-4 text-blue-400" />
+                      <span className="text-[11px] font-bold font-mono tracking-widest uppercase text-blue-400">
+                        Executive Summary
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                      {sections.executiveSummary ||
+                        report.executiveSummary ||
+                        "System Re-aligning... please wait."}
+                    </p>
+                  </motion.div>
+
+                  {/* Market Context */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-5 relative overflow-hidden"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary" />
+                    <div className="flex items-center gap-2 mb-3">
+                      <Globe className="w-4 h-4 text-primary" />
+                      <span className="text-[11px] font-bold font-mono tracking-widest uppercase text-muted-foreground">
+                        Market Context
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                      {sections.marketContext ||
+                        report.fundamentalHealth ||
+                        "See executive summary for market context."}
+                    </p>
+                  </motion.div>
+
+                  {/* Technical Analysis */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-5 relative overflow-hidden"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-chart-5" />
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp className="w-4 h-4 text-chart-5" />
+                      <span className="text-[11px] font-bold font-mono tracking-widest uppercase text-muted-foreground">
+                        Technical Analysis
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                      {sections.technicalAnalysis ||
+                        report.technicalOutlook ||
+                        "See executive summary for technical analysis."}
+                    </p>
+                  </motion.div>
+
+                  {/* Trade Bias */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25 }}
+                    className="md:col-span-2 backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-5"
+                  >
+                    <div className="flex items-center gap-2 mb-4">
+                      <Target className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-[11px] font-bold font-mono tracking-widest uppercase text-muted-foreground">
+                        Trade Bias & Setup
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-4">
+                      {/* Bias badge */}
+                      <div
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${biasCfg.bg} ${biasCfg.border}`}
+                      >
+                        <span
+                          className={`text-lg font-black tracking-tight ${biasCfg.text}`}
+                        >
+                          {bias}
+                        </span>
+                      </div>
+                      {/* Confidence bar */}
+                      <div className="flex-1 min-w-[160px]">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            Confidence
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-foreground">
+                            {sections.confidence}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                          <motion.div
+                            className={`h-full rounded-full ${bias.includes("BUY") ? "bg-bull" : bias.includes("SELL") ? "bg-bear" : "bg-hold"}`}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${sections.confidence}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                          />
+                        </div>
+                      </div>
+                      {/* Price levels grid */}
+                      {(sections.entry ||
+                        sections.sl ||
+                        sections.tp1 ||
+                        sections.tp2) && (
+                        <div className="flex gap-2 flex-wrap ml-auto">
+                          {sections.entry && (
+                            <div className="bg-secondary/50 rounded-md px-3 py-2 text-center min-w-[70px]">
+                              <div className="text-[8px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                                Entry
+                              </div>
+                              <div className="text-xs font-mono font-bold text-foreground">
+                                ${sections.entry}
+                              </div>
+                            </div>
+                          )}
+                          {sections.sl && (
+                            <div className="bg-bear/10 border border-bear/20 rounded-md px-3 py-2 text-center min-w-[70px]">
+                              <div className="text-[8px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                                SL
+                              </div>
+                              <div className="text-xs font-mono font-bold text-bear">
+                                ${sections.sl}
+                              </div>
+                            </div>
+                          )}
+                          {sections.tp1 && (
+                            <div className="bg-bull/8 border border-bull/15 rounded-md px-3 py-2 text-center min-w-[70px]">
+                              <div className="text-[8px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                                TP1
+                              </div>
+                              <div className="text-xs font-mono font-bold text-bull">
+                                ${sections.tp1}
+                              </div>
+                            </div>
+                          )}
+                          {sections.tp2 && (
+                            <div className="bg-bull/12 border border-bull/25 rounded-md px-3 py-2 text-center min-w-[70px]">
+                              <div className="text-[8px] text-muted-foreground uppercase tracking-wider mb-0.5">
+                                TP2
+                              </div>
+                              <div className="text-xs font-mono font-bold text-bull">
+                                ${sections.tp2}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
                 </div>
-              </div>
-              <pre className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap font-sans">
-                {report.rawText || "System Re-aligning... please wait."}
-              </pre>
-            </motion.div>
 
-            {/* Report metadata */}
-            <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-border/30 bg-card/40">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
-                  {report.ticker}
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground/40">
-                  ·
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground/60 uppercase">
-                  {report.assetType}
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground/40">
-                  ·
-                </span>
-                <span className="text-[10px] font-mono text-primary/60">
-                  GEMINI-2.0-FLASH
-                </span>
-              </div>
-              <button
-                type="button"
-                data-ocid="research.refresh.button"
-                onClick={handleGenerate}
-                disabled={isLoading}
-                className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Refresh
-              </button>
-            </div>
-          </motion.div>
-        )}
+                {/* Report metadata / refresh */}
+                <div className="flex items-center justify-between px-4 py-3 rounded-lg border border-border/30 bg-card/40">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
+                      {report.ticker}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground/40">
+                      ·
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground/60 uppercase">
+                      {report.assetType}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground/40">
+                      ·
+                    </span>
+                    <span className="text-[10px] font-mono text-primary/60">
+                      GEMINI-2.0-FLASH
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    data-ocid="research.refresh.button"
+                    onClick={handleGenerate}
+                    disabled={isLoading}
+                    className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Refresh
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })()}
       </AnimatePresence>
     </div>
   );

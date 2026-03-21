@@ -27,9 +27,12 @@ import { GeminiAnalysisPanel } from "../components/GeminiAnalysisPanel";
 import { LiquidationCascadePanel } from "../components/LiquidationCascadePanel";
 import { LiveHeadlinesSection } from "../components/LiveHeadlinesSection";
 import { MarketPressureMeter } from "../components/MarketPressureMeter";
+import { SFISignalCard } from "../components/SFISignalCard";
 import { ScalperActionCard } from "../components/ScalperActionCard";
 import { SmartMoneyPanel } from "../components/SmartMoneyPanel";
 import { TrendMatrixPanel } from "../components/TrendMatrixPanel";
+import { useBinanceKlines } from "../hooks/useBinanceKlines";
+import { useEURUSD } from "../hooks/useEURUSD";
 import { useGeminiSentiment } from "../hooks/useGeminiSentiment";
 import { useLiquidationData } from "../hooks/useLiquidationData";
 import { useMarketWebSocket } from "../hooks/useMarketWebSocket";
@@ -43,6 +46,7 @@ import {
   useTopLosers,
 } from "../hooks/useQueries";
 import { useGeminiEngine } from "../hooks/useRealGeminiEngine";
+import { useSFIEngine } from "../hooks/useSFIEngine";
 import { useScalperEngine } from "../hooks/useScalperEngine";
 import { useSmartMoneyFlow } from "../hooks/useSmartMoneyFlow";
 
@@ -709,6 +713,34 @@ export default function Dashboard() {
   const [scalperMode, setScalperMode] = useState(false);
   const scalperEngine = useScalperEngine();
   const geminiSentiment = useGeminiSentiment();
+  const klines = useBinanceKlines();
+  const eurusd = useEURUSD();
+  const { signals: sfiSignals } = useSFIEngine(
+    klines.candles3m_btc,
+    klines.candles15m_btc,
+    klines.candles3m_xau,
+    klines.candles15m_xau,
+    eurusd.candles3m,
+    eurusd.candles15m,
+  );
+  const sfi3mBtc = sfiSignals.find(
+    (s) => s.asset === "BTC" && s.timeframe === "3m",
+  );
+  const sfi15mBtc = sfiSignals.find(
+    (s) => s.asset === "BTC" && s.timeframe === "15m",
+  );
+  const sfi3mXau = sfiSignals.find(
+    (s) => s.asset === "XAU/USD" && s.timeframe === "3m",
+  );
+  const sfi15mXau = sfiSignals.find(
+    (s) => s.asset === "XAU/USD" && s.timeframe === "15m",
+  );
+  const sfi3mEur = sfiSignals.find(
+    (s) => s.asset === "EUR/USD" && s.timeframe === "3m",
+  );
+  const sfi15mEur = sfiSignals.find(
+    (s) => s.asset === "EUR/USD" && s.timeframe === "15m",
+  );
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
@@ -800,6 +832,41 @@ export default function Dashboard() {
                 </PriceCard>
               );
             })}
+      </div>
+
+      {/* ─── SFI Signal Engine ──────────────────────────────────────────── */}
+      <div className="mb-2" data-ocid="sfi.section">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-2 h-6 bg-cyan-400 rounded-full" />
+          <h2 className="text-xl font-bold text-white">SFI Signal Engine</h2>
+          <span className="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded border border-gray-700">
+            LIVE · No Repaint
+          </span>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <SFISignalCard
+            asset="BTC"
+            signal3m={sfi3mBtc}
+            signal15m={sfi15mBtc}
+            currentPrice={
+              marketData.find((a) => a.symbol === "BTC")?.price ?? 0
+            }
+          />
+          <SFISignalCard
+            asset="XAU/USD"
+            signal3m={sfi3mXau}
+            signal15m={sfi15mXau}
+            currentPrice={
+              marketData.find((a) => a.symbol === "XAU")?.price ?? 0
+            }
+          />
+          <SFISignalCard
+            asset="EUR/USD"
+            signal3m={sfi3mEur}
+            signal15m={sfi15mEur}
+            currentPrice={eurusd.price}
+          />
+        </div>
       </div>
 
       {/* ─── SCALPER MODE ─────────────────────────────────────────────── */}

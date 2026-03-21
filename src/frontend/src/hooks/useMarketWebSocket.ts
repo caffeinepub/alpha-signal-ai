@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MarketAsset } from "../backend.d";
-import { useActor } from "./useActor";
+
+// ─── Local MarketAsset interface (no longer from backend) ──────────────────────
+export interface MarketAsset {
+  symbol: string;
+  name: string;
+  price: number;
+  change24h: number;
+  volume: number;
+  high24h: number;
+  low24h: number;
+}
 
 // ─── Binance WebSocket (BTC + ETH + XAU via PAXG) ────────────────────────────
-// We subscribe to BTC, ETH, and PAXG (1:1 gold proxy) all via Binance stream
 const BINANCE_WS_URL =
   "wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/paxgusdt@ticker";
 
@@ -62,7 +70,6 @@ const INITIAL_MARKET_DATA: MarketAsset[] = [
 ];
 
 export function useMarketWebSocket(): MarketWebSocketState {
-  const { actor, isFetching } = useActor();
   const [marketData, setMarketData] =
     useState<MarketAsset[]>(INITIAL_MARKET_DATA);
   const [binanceConnected, setBinanceConnected] = useState(false);
@@ -71,7 +78,6 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const [lastTickTimes, setLastTickTimes] = useState<Map<string, number>>(
     new Map(),
   );
-  // XAU market: always OPEN on weekdays (Mon–Fri), no API-based check
   const [xauMarketClosed, setXauMarketClosed] = useState(!isForexMarketOpen());
   const [xauLastUpdated, setXauLastUpdated] = useState<Date | null>(null);
 
@@ -81,33 +87,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
-
   const unmountedRef = useRef(false);
-  const initializedRef = useRef(false);
-
-  // ─── One-time backend seed (BTC/ETH only; XAU comes from PAXG stream) ───────
-  useEffect(() => {
-    if (!actor || isFetching || initializedRef.current) return;
-    initializedRef.current = true;
-    actor.getMarketData().then((data) => {
-      if (unmountedRef.current) return;
-      // Merge backend data into state, but keep our XAU placeholder
-      setMarketData((prev) => {
-        const merged = [...prev];
-        for (const asset of data) {
-          // Skip XAU from backend — we rely on PAXG stream
-          if (asset.symbol === "XAU" || asset.symbol === "GOLD") continue;
-          const idx = merged.findIndex((a) => a.symbol === asset.symbol);
-          if (idx >= 0) {
-            merged[idx] = asset;
-          } else {
-            merged.push(asset);
-          }
-        }
-        return merged;
-      });
-    });
-  }, [actor, isFetching]);
 
   // ─── Binance WebSocket (BTC + ETH + PAXG/XAU) ──────────────────────────────
   const connect = useCallback(() => {
@@ -145,7 +125,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
 
         const price = Number.parseFloat(ticker.c);
         const change24h = Number.parseFloat(ticker.P);
-        const volume = Number.parseFloat(ticker.q); // quote volume in USDT
+        const volume = Number.parseFloat(ticker.q);
         const high24h = Number.parseFloat(ticker.h);
         const low24h = Number.parseFloat(ticker.l);
 
@@ -177,10 +157,8 @@ export function useMarketWebSocket(): MarketWebSocketState {
         });
         setLastUpdate(new Date());
 
-        // Track XAU updates for live status
         if (mapping.symbol === "XAU") {
           setXauLastUpdated(new Date());
-          // Always OPEN when receiving data
           setXauMarketClosed(false);
         }
       } catch {
@@ -195,60 +173,37 @@ export function useMarketWebSocket(): MarketWebSocketState {
     ws.onclose = () => {
       if (unmountedRef.current) return;
       setBinanceConnected(false);
+      setIsConnecting(false);
 
       const attempts = reconnectAttemptsRef.current;
       const delay = Math.min(
         BASE_RECONNECT_DELAY * 2 ** attempts,
         MAX_RECONNECT_DELAY,
       );
-      reconnectAttemptsRef.current = attempts + 1;
-
-      reconnectTimerRef.current = setTimeout(() => {
-        if (!unmountedRef.current) {
-          setIsConnecting(true);
-          connect();
-        }
-      }, delay);
-    };
-  }, []);
-
-  // ─── Mount / unmount ────────────────────────────────────────────────────────
-  useEffect(() => {
-    unmountedRef.current = false;
-
-    // Weekday check: if Mon–Fri, force XAU OPEN immediately
-    if (isForexMarketOpen()) {
-      setXauMarketClosed(false);
-      // Seed lastTickTimes for XAU so it shows ONLINE immediately on weekdays
-      setLastTickTimes((prev) => {
-        const next = new Map(prev);
-        next.set("XAU", Date.now());
-        return next;
-      });
-      setXauLastUpdated(new Date());
-    }
-
-    connect();
-
-    // Keep XAU tick time fresh every 5s even before first PAXG tick arrives
-    const xauHeartbeat = setInterval(() => {
-      if (!unmountedRef.current && isForexMarketOpen()) {
-        setLastTickTimes((prev) => {
-          const next = new Map(prev);
-          next.set("XAU", Date.now());
-          return next;
-        });
-        setXauLastUpdated(new Date());
-      }
-    }, 5000);
-
-    return () => {
-      unmountedRef.current = true;
-      clearInterval(xauHeartbeat);
+      reconnectAttemptsRef.current += 1;
 
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
+      }
+      reconnectTimerRef.current = setTimeout(connect, delay);
+    };
+  }, []);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    connect();
+
+    // XAU market hours check every minute
+    const xauInterval = setInterval(() => {
+      if (!unmountedRef.current) {
+        setXauMarketClosed(!isForexMarketOpen());
+      }
+    }, 60_000);
+
+    return () => {
+      unmountedRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
       }
       if (wsRef.current) {
         wsRef.current.onopen = null;
@@ -256,8 +211,8 @@ export function useMarketWebSocket(): MarketWebSocketState {
         wsRef.current.onclose = null;
         wsRef.current.onerror = null;
         wsRef.current.close();
-        wsRef.current = null;
       }
+      clearInterval(xauInterval);
     };
   }, [connect]);
 

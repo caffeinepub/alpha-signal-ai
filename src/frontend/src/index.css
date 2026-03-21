@@ -157,3 +157,31 @@
     background-size: 40px 40px;
   }
 }
+
+/* Glass effect utilities */
+.glass-card {
+  @apply backdrop-blur-md border border-white/10 rounded-xl;
+  background: oklch(0.15 0.022 250 / 0.7);
+}
+
+.glass-card-blue {
+  @apply backdrop-blur-md border rounded-xl;
+  background: oklch(0.55 0.18 250 / 0.08);
+  border-color: oklch(0.55 0.18 250 / 0.25);
+}
+
+/* Smooth entrance animation utility */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 0.4s ease-out forwards;
+}

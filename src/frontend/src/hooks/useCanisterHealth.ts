@@ -27,7 +27,7 @@ export function useCanisterHealth() {
     async function ping() {
       if (!actorRef.current || !mountedRef.current) return;
       try {
-        await actorRef.current.healthCheck();
+        await actorRef.current.getCallerUserRole();
         if (mountedRef.current) {
           setIsOnline(true);
           clearTimer();

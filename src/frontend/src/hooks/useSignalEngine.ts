@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MarketAsset } from "../backend.d";
 import { useBinanceKlines } from "./useBinanceKlines";
 import { useLiquidationData } from "./useLiquidationData";
+import type { MarketAsset } from "./useMarketWebSocket";
 import { useMarketWebSocket } from "./useMarketWebSocket";
 import type { TimeframeMatrix } from "./useMultiTimeframe";
 import { useMultiTimeframe } from "./useMultiTimeframe";
@@ -69,6 +69,7 @@ export interface EngineSignal {
   fakeBreakoutDirection: "bullish" | "bearish" | null;
   signalTime: Date | null;
   isLocked: boolean;
+  lockedUntil: Date | null;
   // Order book confirmation (BTC only)
   orderBookConfirmed: boolean;
   liquidationConfirmed: boolean;
@@ -830,6 +831,7 @@ function buildSignal(
   let entryPrice: number;
   let signalTime: Date | null;
   let isLocked: boolean;
+  let lockedUntil: Date | null = null;
 
   const now = Date.now();
   if (lockEntry && now - lockEntry.lockedAt < LOCK_DURATION_MS) {
@@ -838,6 +840,7 @@ function buildSignal(
     entryPrice = lockEntry.entryPrice;
     signalTime = lockEntry.signalTime;
     isLocked = true;
+    lockedUntil = new Date(lockEntry.lockedAt + LOCK_DURATION_MS);
   } else {
     // No lock or lock expired
     const total = timeframeScores.total;
@@ -1008,6 +1011,7 @@ function buildSignal(
     fakeBreakoutDirection: scores.fakeBreakoutDirection,
     signalTime,
     isLocked,
+    lockedUntil,
     orderBookConfirmed,
     liquidationConfirmed,
     orderBookBuyPressure: obBuyPressure,

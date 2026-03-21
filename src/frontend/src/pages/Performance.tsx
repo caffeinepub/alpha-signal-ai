@@ -21,7 +21,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { TradeRecord } from "../backend.d";
+import type { TradeRecord } from "../hooks/useQueries";
 import { usePerformanceStats, useTradeHistory } from "../hooks/useQueries";
 
 function StatCard({

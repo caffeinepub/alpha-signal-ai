@@ -829,30 +829,12 @@ export function ProfessionalEconomicCalendar() {
                   ))}
                 </>
               )}
-              {sectioned.completed.length > 0 && (
-                <>
-                  <SectionDivider
-                    label="Completed"
-                    count={sectioned.completed.length}
-                  />
-                  {sectioned.completed.map((ev, idx) => (
-                    <EventRow
-                      key={ev.id}
-                      event={ev}
-                      index={idx}
-                      section="completed"
-                      now={now}
-                      onAiToggle={handleAiToggle}
-                      expandedAI={expandedAI}
-                    />
-                  ))}
-                </>
-              )}
+              {/* Completed events are hidden — only upcoming/live shown */}
               {filteredEvents.length === 0 && (
                 <tr>
                   <td colSpan={11} className="py-12 text-center">
                     <span className="text-[11px] font-mono text-muted-foreground/50">
-                      No events match the current filter.
+                      No upcoming events at this time. Check back later.
                     </span>
                   </td>
                 </tr>
