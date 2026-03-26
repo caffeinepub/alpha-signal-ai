@@ -1,6 +1,6 @@
 import { useBinanceKlines } from "../hooks/useBinanceKlines";
 import { useEURUSD } from "../hooks/useEURUSD";
-import { useSFIEngine } from "../hooks/useSFIEngine";
+import { getConfirmationData, useSFIEngine } from "../hooks/useSFIEngine";
 import type { SFISignal } from "../hooks/useSFIEngine";
 
 function fmt(n: number, asset: string): string {
@@ -13,55 +13,55 @@ function fmt(n: number, asset: string): string {
   });
 }
 
-function calcInstitutionalProb(signal: SFISignal): {
-  bull: number;
-  bear: number;
-} {
-  let bullScore = 50;
-  if (signal.ema50 > 0 && signal.ema200 > 0) {
-    if (signal.entry > signal.ema50) bullScore += 10;
-    else bullScore -= 10;
-    if (signal.entry > signal.ema200) bullScore += 10;
-    else bullScore -= 10;
-  }
-  if (signal.rsi > 55) bullScore += 10;
-  else if (signal.rsi < 45) bullScore -= 10;
-  bullScore = Math.max(10, Math.min(90, bullScore));
-  return { bull: bullScore, bear: 100 - bullScore };
-}
-
 function SignalBadge({ signal }: { signal: "BUY" | "SELL" | "WAIT" }) {
   if (signal === "BUY")
     return (
-      <span className="px-3 py-1 rounded-full text-sm font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 tracking-wider">
-        BUY
+      <span className="px-4 py-2 rounded-xl text-base font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 tracking-wider flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(52,211,153,0.7)]" />
+        BUY 🟢
       </span>
     );
   if (signal === "SELL")
     return (
-      <span className="px-3 py-1 rounded-full text-sm font-bold bg-red-500/20 text-red-400 border border-red-500/40 tracking-wider">
-        SELL
+      <span className="px-4 py-2 rounded-xl text-base font-bold bg-red-500/20 text-red-300 border border-red-500/40 tracking-wider flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full bg-red-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.7)]" />
+        SELL 🔴
       </span>
     );
   return (
-    <span className="px-3 py-1 rounded-full text-sm font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40 tracking-wider">
-      WAIT
+    <span className="px-4 py-2 rounded-xl text-base font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 tracking-wider flex items-center gap-2">
+      <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+      WAIT ⚠️
     </span>
   );
 }
 
-function SFIDot({ color }: { color: "GREEN" | "RED" | "NEUTRAL" }) {
-  const cls =
-    color === "GREEN"
-      ? "bg-emerald-400 shadow-[0_0_8px_2px_rgba(52,211,153,0.6)]"
-      : color === "RED"
-        ? "bg-red-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.6)]"
-        : "bg-amber-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.6)]";
-  return <span className={`inline-block w-3 h-3 rounded-full ${cls}`} />;
+function ConfirmationRow({ label, value }: { label: string; value: string }) {
+  const isPositive = ["Bullish", "Uptrend", "Above support"].includes(value);
+  const isNegative = ["Bearish", "Downtrend", "Below support"].includes(value);
+  const colorCls = isPositive
+    ? "text-emerald-400"
+    : isNegative
+      ? "text-red-400"
+      : "text-amber-400";
+  const dotCls = isPositive
+    ? "bg-emerald-400"
+    : isNegative
+      ? "bg-red-400"
+      : "bg-amber-400";
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-zinc-500">{label}</span>
+      <span className={`flex items-center gap-1.5 font-semibold ${colorCls}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
+        {value}
+      </span>
+    </div>
+  );
 }
 
 function SFICard({ s }: { s: SFISignal }) {
-  const prob = calcInstitutionalProb(s);
+  const conf = getConfirmationData(s);
   const cardBorder =
     s.signal === "BUY"
       ? "border-emerald-500/30"
@@ -74,10 +74,9 @@ function SFICard({ s }: { s: SFISignal }) {
       className={`bg-black/40 backdrop-blur-xl border ${cardBorder} rounded-2xl p-5 flex flex-col gap-4`}
       data-ocid={`signal.${s.asset.toLowerCase().replace("/", "")}.${s.timeframe}.card`}
     >
-      {/* Header */}
+      {/* Card header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <SFIDot color={s.sfiColor} />
           <span className="font-mono font-bold text-white text-sm">
             {s.asset}
           </span>
@@ -85,102 +84,91 @@ function SFICard({ s }: { s: SFISignal }) {
             [{s.timeframe}]
           </span>
         </div>
-        <SignalBadge signal={s.signal} />
-      </div>
-
-      {/* Sideways warning */}
-      {s.isSideways && (
-        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 text-xs font-semibold">
-          ⚠️ Sideways Market – No Trade Zone
-        </div>
-      )}
-
-      {/* Entry / SL / Target */}
-      {(s.signal === "BUY" || s.signal === "SELL") && (
-        <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="bg-white/5 rounded-lg p-2 text-center">
-            <div className="text-gray-500 mb-1">Entry</div>
-            <div className="font-mono text-white font-semibold">
-              {fmt(s.entry, s.asset)}
-            </div>
-          </div>
-          <div className="bg-red-500/10 rounded-lg p-2 text-center">
-            <div className="text-red-400/70 mb-1">Stop Loss</div>
-            <div className="font-mono text-red-400 font-semibold">
-              {fmt(s.stopLoss, s.asset)}
-            </div>
-          </div>
-          <div className="bg-emerald-500/10 rounded-lg p-2 text-center">
-            <div className="text-emerald-400/70 mb-1">Target</div>
-            <div className="font-mono text-emerald-400 font-semibold">
-              {fmt(s.target, s.asset)}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* RR */}
-      {(s.signal === "BUY" || s.signal === "SELL") && (
-        <div className="text-xs text-center text-gray-500">
-          Risk / Reward ·{" "}
-          <span className="text-white font-mono font-semibold">1:3</span>
-        </div>
-      )}
-
-      {/* EMA confirmation */}
-      <div className="flex gap-3 text-xs">
-        <div className="flex items-center gap-1.5 bg-white/5 rounded-md px-2 py-1">
-          <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
-          <span className="text-gray-400">EMA50</span>
-          <span className="font-mono text-blue-300">
-            {fmt(s.ema50, s.asset)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-white/5 rounded-md px-2 py-1">
-          <span className="w-2 h-2 rounded-full bg-violet-400 inline-block" />
-          <span className="text-gray-400">EMA200</span>
-          <span className="font-mono text-violet-300">
-            {fmt(s.ema200, s.asset)}
-          </span>
-        </div>
-        <span className="text-gray-600 text-[10px] my-auto">
-          (Confirmation Only)
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-900/40 border border-cyan-500/30 text-cyan-400 tracking-widest uppercase">
+          SFI ENGINE
         </span>
       </div>
 
-      {/* Support / Resistance */}
-      <div className="flex gap-3 text-xs">
-        <div className="flex items-center gap-1.5 bg-emerald-500/5 border border-emerald-500/20 rounded-md px-2 py-1">
-          <span className="text-emerald-500/70">Support</span>
-          <span className="font-mono text-emerald-400">
-            {fmt(s.support, s.asset)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-red-500/5 border border-red-500/20 rounded-md px-2 py-1">
-          <span className="text-red-500/70">Resistance</span>
-          <span className="font-mono text-red-400">
-            {fmt(s.resistance, s.asset)}
-          </span>
-        </div>
+      {/* ── SIGNAL SECTION ─────────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+          Signal
+        </p>
+        <SignalBadge signal={s.signal} />
+
+        {/* Sideways warning */}
+        {s.isSideways && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 text-xs font-semibold">
+            ⚠️ Sideways Market – No Trade Zone
+          </div>
+        )}
+
+        {/* Entry / SL / Target */}
+        {(s.signal === "BUY" || s.signal === "SELL") && (
+          <div className="grid grid-cols-3 gap-2 text-xs mt-1">
+            <div className="bg-white/5 rounded-lg p-2 text-center">
+              <div className="text-gray-500 mb-1">Entry</div>
+              <div className="font-mono text-white font-semibold">
+                {fmt(s.entry, s.asset)}
+              </div>
+            </div>
+            <div className="bg-red-500/10 rounded-lg p-2 text-center">
+              <div className="text-red-400/70 mb-1">Stop Loss</div>
+              <div className="font-mono text-red-400 font-semibold">
+                {fmt(s.stopLoss, s.asset)}
+              </div>
+            </div>
+            <div className="bg-emerald-500/10 rounded-lg p-2 text-center">
+              <div className="text-emerald-400/70 mb-1">Target</div>
+              <div className="font-mono text-emerald-400 font-semibold">
+                {fmt(s.target, s.asset)}
+              </div>
+            </div>
+          </div>
+        )}
+        {(s.signal === "BUY" || s.signal === "SELL") && (
+          <div className="text-xs text-center text-gray-500">
+            Risk / Reward ·{" "}
+            <span className="text-white font-mono font-semibold">1:3</span>
+          </div>
+        )}
       </div>
 
-      {/* Institutional probability bar (visual only) */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-[10px] text-gray-500">
-          <span>Institutional Probability (visual only)</span>
-          <span className="font-mono">
-            {prob.bull}% Bull · {prob.bear}% Bear
+      {/* ── CONFIRMATION SECTION (DISPLAY ONLY) ────────────── */}
+      <div className="bg-white/5 rounded-xl px-3 py-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-b border-white/10 pb-1.5 mb-2">
+          Confirmation{" "}
+          <span className="text-zinc-700 font-normal normal-case tracking-normal">
+            (Display Only — does not affect signal)
           </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden flex">
-          <div
-            className="h-full bg-emerald-500 transition-all duration-700"
-            style={{ width: `${prob.bull}%` }}
-          />
-          <div
-            className="h-full bg-red-500"
-            style={{ width: `${prob.bear}%` }}
-          />
+        </p>
+        <ConfirmationRow
+          label="Institutional Bias"
+          value={conf.institutionalBias}
+        />
+        <ConfirmationRow label="EMA Trend" value={conf.emaTrend} />
+        <ConfirmationRow label="Liquidity" value={conf.liquidity} />
+        <div className="pt-1.5 border-t border-white/5 mt-1 space-y-1">
+          <div className="flex justify-between text-[10px] font-mono">
+            <span className="text-zinc-600">EMA 50</span>
+            <span className="text-blue-400/70">{fmt(s.ema50, s.asset)}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono">
+            <span className="text-zinc-600">EMA 200</span>
+            <span className="text-violet-400/70">{fmt(s.ema200, s.asset)}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono">
+            <span className="text-zinc-600">Support</span>
+            <span className="text-emerald-500/70">
+              {fmt(s.support, s.asset)}
+            </span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono">
+            <span className="text-zinc-600">Resistance</span>
+            <span className="text-red-500/70">
+              {fmt(s.resistance, s.asset)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -218,11 +206,25 @@ export default function Signals() {
             BTC · XAU/USD · EUR/USD — 3m &amp; 15m timeframes
           </p>
         </div>
-        <div className="flex items-center gap-1.5 ml-2">
+        <div className="flex items-center gap-2 ml-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-emerald-400 text-xs font-semibold tracking-widest">
             LIVE · NO REPAINT
           </span>
+          <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-500/30 text-emerald-400 tracking-widest uppercase">
+            SFI LOCKED
+          </span>
+        </div>
+      </div>
+
+      {/* System priority notice */}
+      <div className="bg-cyan-900/20 border border-cyan-500/20 rounded-xl px-4 py-3 text-xs text-cyan-300 flex items-start gap-3">
+        <span className="text-cyan-400 text-base mt-0.5">🔒</span>
+        <div>
+          <span className="font-bold">SFI Engine = 100% Signal Control.</span>{" "}
+          All other data (EMA, RSI, Volume, Order Flow, Institutional) is
+          displayed for confirmation only and has zero impact on signal
+          direction.
         </div>
       </div>
 
@@ -253,12 +255,16 @@ export default function Signals() {
       {/* Connection status */}
       <div className="text-xs text-gray-600 flex items-center gap-2">
         <span
-          className={`w-1.5 h-1.5 rounded-full ${klines.isConnected ? "bg-emerald-500" : "bg-red-500"}`}
+          className={`w-1.5 h-1.5 rounded-full ${
+            klines.isConnected ? "bg-emerald-500" : "bg-red-500"
+          }`}
         />
         Binance WebSocket: {klines.isConnected ? "Connected" : "Reconnecting…"}
         <span className="mx-2">·</span>
         <span
-          className={`w-1.5 h-1.5 rounded-full ${eurusd.isConnected ? "bg-emerald-500" : "bg-amber-500"}`}
+          className={`w-1.5 h-1.5 rounded-full ${
+            eurusd.isConnected ? "bg-emerald-500" : "bg-amber-500"
+          }`}
         />
         EUR/USD Feed: {eurusd.isConnected ? "Connected" : "Polling…"}
       </div>

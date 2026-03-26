@@ -1,5 +1,7 @@
-const GEMINI_API_KEY = "AIzaSyCL69JXmjihYJkB0nuUu8zfmo-4gURNNkE";
-const GEMINI_MODEL = "gemini-1.5-flash";
+// Gemini 1.5 Pro — frontend-only calls
+// API Key: AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8
+const GEMINI_API_KEY = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+const GEMINI_MODEL = "gemini-1.5-pro";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 export interface GeminiAnalysisResult {
@@ -26,7 +28,7 @@ export interface GeminiResearchResult {
 function extractSection(text: string, ...headers: string[]): string {
   for (const header of headers) {
     const regex = new RegExp(
-      `(?:#{1,3}\\s*)?${header}[:\s*]*\\n([\\s\\S]*?)(?=\n(?:#{1,3}\\s*)?(?:Executive Summary|Market Context|Technical Analysis|Trade Bias|Trade Setup|Entry|Stop Loss|$))`,
+      `(?:#{1,3}\\s*)?${header}[:\\s*]*\\n([\\s\\S]*?)(?=\n(?:#{1,3}\\s*)?(?:Executive Summary|Market Context|Technical Analysis|Trade Bias|Trade Setup|Entry|Stop Loss|$))`,
       "i",
     );
     const m = text.match(regex);
@@ -43,6 +45,24 @@ function parseTradeBias(text: string): string {
   if (/BULLISH/i.test(text)) return "BUY";
   if (/BEARISH/i.test(text)) return "SELL";
   return "HOLD";
+}
+
+async function fetchGemini(body: object, retries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(GEMINI_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok || attempt === retries) return res;
+      await new Promise((r) => setTimeout(r, 1000));
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw new Error("Gemini fetch failed after retries");
 }
 
 export async function callGeminiResearch(
@@ -71,13 +91,9 @@ Target 2: [price level]
 
 Be specific, data-driven, and professional. Write as an institutional analyst.`;
 
-  const response = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
-    }),
+  const response = await fetchGemini({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
   });
 
   if (!response.ok) {
@@ -89,16 +105,14 @@ Be specific, data-driven, and professional. Write as an institutional analyst.`;
   }
 
   const data = await response.json();
-
-  // Log raw response for debugging
   console.log("[Gemini] Raw response:", JSON.stringify(data, null, 2));
 
+  // RAW TEXT MODE — show response as-is, no complex JSON parsing
   const rawText: string =
     data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
   if (!rawText) {
     const finishReason = data?.candidates?.[0]?.finishReason;
-    console.error("[Gemini] Empty response, finishReason:", finishReason, data);
     throw new Error(
       `Gemini returned empty response (finishReason: ${finishReason ?? "unknown"})`,
     );
@@ -128,34 +142,37 @@ export async function callGeminiAnalysis(
   symbol: string,
   marketType: string,
 ): Promise<GeminiAnalysisResult> {
-  const prompt = `You are a professional market analyst. 
+  const prompt = `You are a professional market analyst.
 Analyze ${symbol} for ${marketType} market.
-Return ONLY a valid JSON object with these exact fields:
-{
-  "trend": "bullish" or "bearish" or "neutral",
-  "confidence": number between 0-100,
-  "signal": "BUY" or "SELL" or "HOLD",
-  "support_level": "price level as string",
-  "resistance_level": "price level as string", 
-  "bias": "BULLISH" or "BEARISH" or "NEUTRAL",
-  "insight": "2 sentence professional analysis",
-  "summary": "brief summary"
-}`;
+Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a confidence percentage (0-100), a signal (BUY/SELL/HOLD), approximate support and resistance levels, and a 2-sentence insight.`;
 
   try {
-    const response = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3 },
-      }),
+    const response = await fetchGemini({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3 },
     });
     const data = await response.json();
-    const text = data.candidates[0].content.parts[0].text;
-    // Strip markdown code fences if present
-    const clean = text.replace(/```json?\n?|```/g, "").trim();
-    return JSON.parse(clean);
+    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    // RAW TEXT MODE — extract key values with simple regex, no JSON.parse
+    const biasMatch = text.match(/\b(BULLISH|BEARISH|NEUTRAL)\b/i);
+    const confMatch = text.match(/(\d{1,3})\s*%?\s*confidence/i);
+    const signalMatch = text.match(
+      /\b(STRONG BUY|STRONG SELL|BUY|SELL|HOLD)\b/i,
+    );
+    const supportMatch = text.match(/support[^\d]*(\d[\d,\.]+)/i);
+    const resistanceMatch = text.match(/resistance[^\d]*(\d[\d,\.]+)/i);
+
+    return {
+      trend: biasMatch ? biasMatch[1].toLowerCase() : "neutral",
+      confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 55,
+      signal: signalMatch ? signalMatch[1].toUpperCase() : "HOLD",
+      support_level: supportMatch ? supportMatch[1] : "N/A",
+      resistance_level: resistanceMatch ? resistanceMatch[1] : "N/A",
+      bias: biasMatch ? biasMatch[1].toUpperCase() : "NEUTRAL",
+      insight: text.substring(0, 200).replace(/\n/g, " "),
+      summary: text.substring(0, 100),
+    };
   } catch (error) {
     console.error("[Gemini] callGeminiAnalysis failed:", error);
     return {
@@ -173,16 +190,12 @@ Return ONLY a valid JSON object with these exact fields:
 
 export async function callGeminiRaw(prompt: string): Promise<string> {
   try {
-    const response = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3 },
-      }),
+    const response = await fetchGemini({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3 },
     });
     const data = await response.json();
-    return data.candidates[0].content.parts[0].text;
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   } catch (error) {
     console.error("[Gemini] callGeminiRaw failed:", error);
     return "";

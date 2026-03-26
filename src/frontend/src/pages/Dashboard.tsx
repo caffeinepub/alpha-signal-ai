@@ -982,7 +982,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-              Gemini 2.0 Flash Engine
+              Gemini 1.5 Pro Engine
             </span>
             <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <Zap className="w-2.5 h-2.5" />

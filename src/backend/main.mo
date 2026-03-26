@@ -15,6 +15,7 @@ import MixinStorage "blob-storage/Mixin";
 import AccessControl "authorization/access-control";
 import MixinAuthorization "authorization/MixinAuthorization";
 import Blob "mo:core/Blob";
+import Outcall "http-outcalls/outcall";
 
 
 actor {
@@ -336,4 +337,29 @@ actor {
       };
     };
   };
+
+  // Transform function required for HTTPS outcalls on ICP
+  public query func geminiTransform(input : Outcall.TransformationInput) : async Outcall.TransformationOutput {
+    Outcall.transform(input);
+  };
+
+  // researchWithGemini: calls Gemini 1.5 Pro API and returns raw text response
+  public shared func researchWithGemini(ticker : Text) : async Text {
+    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=" # apiKey;
+    let prompt = "Generate a professional institutional-level trading analysis for " # ticker # ". Include: Executive Summary, Market Context, Technical Analysis, Trade Bias (STRONG BUY/BUY/HOLD/SELL/STRONG SELL with reasoning), and Trade Setup (Entry, Stop Loss, Target 1, Target 2). Be specific and professional.";
+    let body = "{\"contents\":[{\"parts\":[{\"text\":\"" # prompt # "\"}]}],\"generationConfig\":{\"temperature\":0.4,\"maxOutputTokens\":1500}}";
+    try {
+      let response = await Outcall.httpPostRequest(
+        url,
+        [{ name = "Content-Type"; value = "application/json" }],
+        body,
+        geminiTransform
+      );
+      response;
+    } catch (e) {
+      "AI analysis temporarily unavailable. Please retry.";
+    };
+  };
+
 };

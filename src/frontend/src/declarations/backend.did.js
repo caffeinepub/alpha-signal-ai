@@ -96,6 +96,7 @@ export const idlService = IDL.Service({
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
 });
 
 export const idlInitArgs = [];
@@ -189,6 +190,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'researchWithGemini' : IDL.Func([IDL.Text], [IDL.Text], []),
   });
 };
 

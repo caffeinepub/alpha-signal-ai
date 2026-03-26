@@ -6,7 +6,6 @@ import {
   FlaskConical,
   LayoutDashboard,
   LineChart,
-  Menu,
   MessageSquare,
   Play,
   Radio,
@@ -14,7 +13,6 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
 
 const navItems = [
   {
@@ -75,11 +73,15 @@ const navItems = [
 
 interface SidebarProps {
   currentPath: string;
+  mobileOpen: boolean;
+  setMobileOpen: (open: boolean) => void;
 }
 
-export default function Sidebar({ currentPath }: SidebarProps) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
+export default function Sidebar({
+  currentPath,
+  mobileOpen,
+  setMobileOpen,
+}: SidebarProps) {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -194,16 +196,6 @@ export default function Sidebar({ currentPath }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile toggle button */}
-      <button
-        type="button"
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-md bg-card border border-border text-foreground"
-        onClick={() => setMobileOpen(!mobileOpen)}
-        aria-label="Toggle sidebar"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
-
       {/* Mobile overlay */}
       {mobileOpen && (
         <div

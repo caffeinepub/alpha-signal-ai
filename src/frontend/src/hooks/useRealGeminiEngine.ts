@@ -71,7 +71,7 @@ function mapSignal(raw: string): GeminiSignal {
 
 function defaultResult(): GeminiResult {
   return {
-    analysisText: "Awaiting Gemini 2.0 Flash analysis...",
+    analysisText: "Awaiting Gemini 1.5 Pro analysis...",
     signal: "NEUTRAL",
     geminiConfidence: 0,
     ema50: 0,

@@ -163,7 +163,7 @@ export function LiveHeadlinesSection({
             Live Headlines
           </span>
           <span className="text-[9px] text-muted-foreground font-mono">
-            via Gemini 2.0 Flash
+            via Gemini 1.5 Pro
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -235,7 +235,7 @@ export function LiveHeadlinesSection({
       {/* Footer */}
       <div className="px-4 py-2 border-t border-border/20 bg-white/[0.01]">
         <span className="text-[9px] text-muted-foreground/50 font-mono">
-          Sentiment powered by Gemini 2.0 Flash · Refreshes every 5 min
+          Sentiment powered by Gemini 1.5 Pro · Refreshes every 5 min
         </span>
       </div>
     </motion.div>

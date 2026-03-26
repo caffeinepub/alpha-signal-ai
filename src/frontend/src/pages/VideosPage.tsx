@@ -1,737 +1,991 @@
 import { VideoDifficulty } from "@/backend";
 import { useActor } from "@/hooks/useActor";
-import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import {
-  AlertTriangle,
+  BookOpen,
+  Brain,
   Loader2,
   Play,
   Search,
+  Shield,
+  Sparkles,
+  Target,
   Trash2,
-  Upload,
+  TrendingUp,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-const ADMIN_EMAIL = "prakash.brjn01@gmail.com";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type DifficultyFilter = "all" | "beginner" | "advanced";
+type DifficultyLevel = "beginner" | "intermediate" | "advanced";
+type Category =
+  | "all"
+  | "smart-money"
+  | "trading-basics"
+  | "psychology"
+  | "strategy";
 
 interface VideoItem {
-  id: bigint;
+  id: string;
   title: string;
   description: string;
-  videoUrl: string;
+  youtubeId: string;
   thumbnailUrl: string;
-  difficulty: string;
-  uploaded_at: bigint;
+  difficulty: DifficultyLevel;
+  category: Category;
+  uploadedAt: number; // ms timestamp
+  isLocal?: boolean; // stored in localStorage
 }
 
-function formatDate(nanos: bigint): string {
-  const ms = Number(nanos / 1_000_000n);
-  return new Date(ms).toLocaleDateString("en-US", {
+// ─── YouTube helpers ──────────────────────────────────────────────────────────
+
+function extractYouTubeId(url: string): string {
+  const short = url.match(/youtu\.be\/([\w-]+)/);
+  if (short) return short[1];
+  const long = url.match(/[?&]v=([\w-]+)/);
+  if (long) return long[1];
+  const embed = url.match(/embed\/([\w-]+)/);
+  if (embed) return embed[1];
+  return "";
+}
+
+function getEmbedUrl(ytId: string): string {
+  return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`;
+}
+
+function getThumbnail(ytId: string): string {
+  return `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+}
+
+function isNewVideo(uploadedAt: number): boolean {
+  return Date.now() - uploadedAt < 7 * 24 * 60 * 60 * 1000;
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
 }
 
-function isYouTube(url: string): boolean {
-  return url.includes("youtube.com") || url.includes("youtu.be");
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = "alpha_signal_videos_v2";
+
+const CATEGORIES: { id: Category; label: string; icon: React.ReactNode }[] = [
+  { id: "all", label: "All Videos", icon: <Play className="w-3.5 h-3.5" /> },
+  {
+    id: "smart-money",
+    label: "Smart Money",
+    icon: <Shield className="w-3.5 h-3.5" />,
+  },
+  {
+    id: "trading-basics",
+    label: "Trading Basics",
+    icon: <BookOpen className="w-3.5 h-3.5" />,
+  },
+  {
+    id: "psychology",
+    label: "Psychology",
+    icon: <Brain className="w-3.5 h-3.5" />,
+  },
+  {
+    id: "strategy",
+    label: "Strategy",
+    icon: <Target className="w-3.5 h-3.5" />,
+  },
+];
+
+const DIFFICULTY_OPTIONS: { id: DifficultyLevel | "all"; label: string }[] = [
+  { id: "all", label: "All Levels" },
+  { id: "beginner", label: "Beginner" },
+  { id: "intermediate", label: "Intermediate" },
+  { id: "advanced", label: "Advanced" },
+];
+
+const DIFFICULTY_STYLES: Record<DifficultyLevel, string> = {
+  beginner: "bg-emerald-500/15 border-emerald-500/30 text-emerald-400",
+  intermediate: "bg-amber-500/15 border-amber-500/30 text-amber-400",
+  advanced: "bg-purple-500/15 border-purple-500/30 text-purple-400",
+};
+
+const SAMPLE_VIDEOS: VideoItem[] = [
+  {
+    id: "sample-1",
+    title: "Smart Money Concepts (SMC) — Complete Beginner Guide",
+    description:
+      "Learn how institutional traders operate, including order blocks, fair value gaps, and liquidity sweeps.",
+    youtubeId: "FjqjCr1RRWI",
+    thumbnailUrl: getThumbnail("FjqjCr1RRWI"),
+    difficulty: "beginner",
+    category: "smart-money",
+    uploadedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-2",
+    title: "Order Blocks & Fair Value Gaps Explained",
+    description:
+      "Deep dive into SMC order blocks and fair value gaps — how to identify them and trade them with precision.",
+    youtubeId: "M0XxLaBJfMc",
+    thumbnailUrl: getThumbnail("M0XxLaBJfMc"),
+    difficulty: "intermediate",
+    category: "smart-money",
+    uploadedAt: Date.now() - 4 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-3",
+    title: "EMA Strategy for Day Trading — 20/50/200 Setup",
+    description:
+      "Master the EMA crossover technique using the 20, 50, and 200 exponential moving averages for high-probability entries.",
+    youtubeId: "BsM7-MNxDDI",
+    thumbnailUrl: getThumbnail("BsM7-MNxDDI"),
+    difficulty: "beginner",
+    category: "trading-basics",
+    uploadedAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-4",
+    title: "Reading the Economic Calendar — Trading NFP & FOMC",
+    description:
+      "Learn how to trade high-impact news events like Non-Farm Payrolls and FOMC rate decisions without getting wrecked.",
+    youtubeId: "MrVpxMzL_-0",
+    thumbnailUrl: getThumbnail("MrVpxMzL_-0"),
+    difficulty: "beginner",
+    category: "trading-basics",
+    uploadedAt: Date.now() - 12 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-5",
+    title: "Trading Psychology — How to Stay Disciplined",
+    description:
+      "Master your emotions in trading. Overcome FOMO, revenge trading, and emotional decision-making to trade like a professional.",
+    youtubeId: "Kw5m5QQTHQI",
+    thumbnailUrl: getThumbnail("Kw5m5QQTHQI"),
+    difficulty: "beginner",
+    category: "psychology",
+    uploadedAt: Date.now() - 5 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-6",
+    title: "Mental Performance for Traders — Advanced Mindset",
+    description:
+      "Elite-level psychological frameworks used by professional traders to maintain peak performance and consistency.",
+    youtubeId: "Q7LX6bCPFq8",
+    thumbnailUrl: getThumbnail("Q7LX6bCPFq8"),
+    difficulty: "advanced",
+    category: "psychology",
+    uploadedAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-7",
+    title: "RSI + Supertrend Strategy — Advanced Crypto Scalping",
+    description:
+      "Combine RSI divergence with Supertrend confirmation for precision entries on BTC and ETH scalping setups.",
+    youtubeId: "Kw5m5QQTHQI",
+    thumbnailUrl: getThumbnail("Kw5m5QQTHQI"),
+    difficulty: "advanced",
+    category: "strategy",
+    uploadedAt: Date.now() - 9 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: "sample-8",
+    title: "Gold (XAUUSD) Trading Strategy — Complete Breakdown",
+    description:
+      "Understand DXY correlation, safe-haven flows, and how to build a high-probability gold trading strategy.",
+    youtubeId: "Q7LX6bCPFq8",
+    thumbnailUrl: getThumbnail("Q7LX6bCPFq8"),
+    difficulty: "intermediate",
+    category: "strategy",
+    uploadedAt: Date.now() - 1 * 24 * 60 * 60 * 1000,
+  },
+];
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+function loadLocalVideos(): VideoItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as VideoItem[];
+  } catch {
+    return [];
+  }
 }
 
-function getYouTubeEmbedUrl(url: string): string {
-  const shortMatch = url.match(/youtu\.be\/([\w-]+)/);
-  if (shortMatch) return `https://www.youtube.com/embed/${shortMatch[1]}`;
-  const longMatch = url.match(/[?&]v=([\w-]+)/);
-  if (longMatch) return `https://www.youtube.com/embed/${longMatch[1]}`;
-  if (url.includes("/embed/")) return url;
-  return url;
+function saveLocalVideos(videos: VideoItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
+  } catch {}
 }
 
-function ThumbnailPlaceholder({
-  difficulty,
-  title,
-}: {
-  difficulty: string;
-  title: string;
-}) {
-  const isAdvanced = difficulty === "advanced";
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function VideosPage() {
+  const { actor } = useActor();
+
+  const [allVideos, setAllVideos] = useState<VideoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState<Category>("all");
+  const [activeDifficulty, setActiveDifficulty] = useState<
+    DifficultyLevel | "all"
+  >("all");
+  const [playingVideo, setPlayingVideo] = useState<VideoItem | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({
+    title: "",
+    description: "",
+    youtubeUrl: "",
+    difficulty: "beginner" as DifficultyLevel,
+    category: "trading-basics" as Category,
+  });
+  const [addError, setAddError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [previewId, setPreviewId] = useState("");
+
+  // Load videos on mount
+  const loadVideos = useCallback(async () => {
+    setLoading(true);
+    const local = loadLocalVideos();
+
+    if (actor) {
+      try {
+        const backendVideos = await actor.getVideos();
+        if (backendVideos.length > 0) {
+          // Merge backend videos with any local metadata
+          const merged = backendVideos.map((bv) => {
+            const ytId = extractYouTubeId(bv.videoUrl);
+            return {
+              id: String(bv.id),
+              title: bv.title,
+              description: bv.description,
+              youtubeId: ytId,
+              thumbnailUrl: bv.thumbnailUrl || getThumbnail(ytId),
+              difficulty: (bv.difficulty?.toLowerCase() ??
+                "beginner") as DifficultyLevel,
+              category: "trading-basics" as Category,
+              uploadedAt: Number(bv.uploaded_at) / 1_000_000,
+            };
+          });
+          // Combine: local admin-added + backend (avoid duplicates)
+          const backendIds = new Set(merged.map((v) => v.id));
+          const localOnly = local.filter((v) => !backendIds.has(v.id));
+          const combined = [...merged, ...localOnly].sort(
+            (a, b) => b.uploadedAt - a.uploadedAt,
+          );
+          setAllVideos(combined.length > 0 ? combined : SAMPLE_VIDEOS);
+        } else {
+          // No backend videos — show local + samples
+          const combined = [
+            ...local,
+            ...SAMPLE_VIDEOS.filter((s) => !local.find((l) => l.id === s.id)),
+          ].sort((a, b) => b.uploadedAt - a.uploadedAt);
+          setAllVideos(combined);
+        }
+      } catch {
+        const combined = [
+          ...local,
+          ...SAMPLE_VIDEOS.filter((s) => !local.find((l) => l.id === s.id)),
+        ].sort((a, b) => b.uploadedAt - a.uploadedAt);
+        setAllVideos(combined);
+      }
+    } else {
+      const combined = [
+        ...local,
+        ...SAMPLE_VIDEOS.filter((s) => !local.find((l) => l.id === s.id)),
+      ].sort((a, b) => b.uploadedAt - a.uploadedAt);
+      setAllVideos(combined);
+    }
+    setLoading(false);
+  }, [actor]);
+
+  useEffect(() => {
+    loadVideos();
+  }, [loadVideos]);
+
+  // Derived filter
+  const filtered = allVideos.filter((v) => {
+    const matchSearch =
+      v.title.toLowerCase().includes(search.toLowerCase()) ||
+      v.description.toLowerCase().includes(search.toLowerCase());
+    const matchCat = activeCategory === "all" || v.category === activeCategory;
+    const matchDiff =
+      activeDifficulty === "all" || v.difficulty === activeDifficulty;
+    return matchSearch && matchCat && matchDiff;
+  });
+
+  // YouTube URL preview
+  useEffect(() => {
+    const id = extractYouTubeId(addForm.youtubeUrl);
+    setPreviewId(id);
+  }, [addForm.youtubeUrl]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError("");
+    if (!addForm.title.trim()) {
+      setAddError("Title is required.");
+      return;
+    }
+    if (!addForm.youtubeUrl.trim()) {
+      setAddError("YouTube URL is required.");
+      return;
+    }
+    const ytId = extractYouTubeId(addForm.youtubeUrl);
+    if (!ytId) {
+      setAddError("Could not extract YouTube video ID. Please check the URL.");
+      return;
+    }
+
+    setAdding(true);
+    const newVideo: VideoItem = {
+      id: `local-${Date.now()}`,
+      title: addForm.title.trim(),
+      description: addForm.description.trim(),
+      youtubeId: ytId,
+      thumbnailUrl: getThumbnail(ytId),
+      difficulty: addForm.difficulty,
+      category:
+        addForm.category === "all"
+          ? "trading-basics"
+          : (addForm.category as Exclude<Category, "all">),
+      uploadedAt: Date.now(),
+      isLocal: true,
+    };
+
+    // Also try to persist in backend
+    if (actor) {
+      try {
+        const difficulty =
+          addForm.difficulty === "advanced"
+            ? VideoDifficulty.advanced
+            : VideoDifficulty.beginner;
+        await actor.addVideo(
+          newVideo.title,
+          newVideo.description,
+          `https://www.youtube.com/watch?v=${ytId}`,
+          newVideo.thumbnailUrl,
+          difficulty,
+        );
+      } catch {
+        // Backend save failed, still save locally
+      }
+    }
+
+    // Save locally
+    const existing = loadLocalVideos();
+    const updated = [newVideo, ...existing];
+    saveLocalVideos(updated);
+
+    setAllVideos((prev) => [newVideo, ...prev]);
+    setShowAddModal(false);
+    setAddForm({
+      title: "",
+      description: "",
+      youtubeUrl: "",
+      difficulty: "beginner",
+      category: "trading-basics",
+    });
+    setAdding(false);
+  };
+
+  const handleDelete = async (video: VideoItem) => {
+    // Remove from local storage
+    const existing = loadLocalVideos();
+    saveLocalVideos(existing.filter((v) => v.id !== video.id));
+
+    // Try backend delete
+    if (actor && !video.isLocal) {
+      try {
+        await actor.deleteVideo(BigInt(video.id));
+      } catch {}
+    }
+
+    setAllVideos((prev) => prev.filter((v) => v.id !== video.id));
+    if (playingVideo?.id === video.id) setPlayingVideo(null);
+  };
+
+  const categoryCounts = CATEGORIES.reduce(
+    (acc, cat) => {
+      acc[cat.id] =
+        cat.id === "all"
+          ? allVideos.length
+          : allVideos.filter((v) => v.category === cat.id).length;
+      return acc;
+    },
+    {} as Record<Category, number>,
+  );
+
   return (
-    <div
-      className={cn(
-        "w-full h-full flex items-center justify-center pointer-events-none",
-        isAdvanced
-          ? "bg-gradient-to-br from-purple-900/60 to-purple-700/20"
-          : "bg-gradient-to-br from-cyan-900/60 to-cyan-700/20",
-      )}
-    >
-      <div className="text-center px-4">
-        <Play
-          className={cn(
-            "w-10 h-10 mx-auto mb-2 opacity-40",
-            isAdvanced ? "text-purple-400" : "text-cyan-400",
-          )}
+    <div className="min-h-screen bg-background">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-b border-white/5">
+        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-transparent to-purple-500/5" />
+        <div className="relative px-6 py-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="w-5 h-5 text-cyan-400" />
+                <span className="text-xs font-medium text-cyan-400 uppercase tracking-widest">
+                  Alpha Signal AI
+                </span>
+              </div>
+              <h1 className="text-2xl font-bold text-white">Learning Center</h1>
+              <p className="text-sm text-slate-400 mt-1">
+                {allVideos.length} professional trading videos
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-sm font-medium"
+            >
+              <Sparkles className="w-4 h-4" />
+              Add Video
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-6 space-y-6">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search videos by title or topic..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-800/60 border border-white/8 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/40 focus:bg-slate-800 transition-all"
+          />
+        </div>
+
+        {/* Category Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setActiveCategory(cat.id)}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap border transition-all",
+                activeCategory === cat.id
+                  ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-400"
+                  : "bg-slate-800/60 border-white/8 text-slate-400 hover:text-white hover:border-white/15",
+              )}
+            >
+              {cat.icon}
+              {cat.label}
+              <span
+                className={cn(
+                  "ml-0.5 px-1.5 py-0.5 rounded-full text-[10px]",
+                  activeCategory === cat.id
+                    ? "bg-cyan-500/30 text-cyan-300"
+                    : "bg-slate-700 text-slate-400",
+                )}
+              >
+                {categoryCounts[cat.id]}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Difficulty Filter */}
+        <div className="flex gap-2 flex-wrap">
+          {DIFFICULTY_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setActiveDifficulty(opt.id)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                activeDifficulty === opt.id
+                  ? opt.id === "beginner"
+                    ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                    : opt.id === "intermediate"
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+                      : opt.id === "advanced"
+                        ? "bg-purple-500/20 border-purple-500/40 text-purple-400"
+                        : "bg-cyan-500/20 border-cyan-500/40 text-cyan-400"
+                  : "bg-slate-800/60 border-white/8 text-slate-400 hover:text-white",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Results count */}
+        {!loading && (
+          <p className="text-xs text-slate-500">
+            Showing{" "}
+            <span className="text-slate-300 font-medium">
+              {filtered.length}
+            </span>{" "}
+            video{filtered.length !== 1 ? "s" : ""}
+            {activeCategory !== "all" &&
+              ` in ${CATEGORIES.find((c) => c.id === activeCategory)?.label}`}
+          </p>
+        )}
+
+        {/* Loading */}
+        {loading && (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+          </div>
+        )}
+
+        {/* Empty */}
+        {!loading && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
+            <div className="w-16 h-16 rounded-full bg-slate-800 border border-white/8 flex items-center justify-center">
+              <Play className="w-7 h-7 text-slate-600" />
+            </div>
+            <div className="text-center">
+              <p className="font-medium text-slate-300">No videos found</p>
+              <p className="text-sm mt-1">
+                Try adjusting your search or filters.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Video Grid */}
+        {!loading && filtered.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filtered.map((video) => (
+              <VideoCard
+                key={video.id}
+                video={video}
+                onPlay={() => setPlayingVideo(video)}
+                onDelete={() => handleDelete(video)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Player Modal */}
+      {playingVideo && (
+        <PlayerModal
+          video={playingVideo}
+          onClose={() => setPlayingVideo(null)}
         />
-        <p className="text-xs text-muted-foreground line-clamp-2 opacity-60">
-          {title}
+      )}
+
+      {/* Add Video Modal */}
+      {showAddModal && (
+        <AddVideoModal
+          form={addForm}
+          previewId={previewId}
+          error={addError}
+          adding={adding}
+          onChange={(patch) => setAddForm((p) => ({ ...p, ...patch }))}
+          onSubmit={handleAdd}
+          onClose={() => {
+            setShowAddModal(false);
+            setAddError("");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── VideoCard ────────────────────────────────────────────────────────────────
+
+function VideoCard({
+  video,
+  onPlay,
+  onDelete,
+}: {
+  video: VideoItem;
+  onPlay: () => void;
+  onDelete: () => void;
+}) {
+  const [thumbError, setThumbError] = useState(false);
+  const isNew = isNewVideo(video.uploadedAt);
+
+  return (
+    <div className="group relative bg-slate-800/60 border border-white/8 rounded-xl overflow-hidden hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-300 cursor-pointer">
+      {/* Thumbnail */}
+      <button
+        type="button"
+        className="relative w-full aspect-video bg-slate-900 overflow-hidden focus:outline-none"
+        onClick={onPlay}
+        aria-label={`Play ${video.title}`}
+      >
+        {!thumbError ? (
+          <img
+            src={video.thumbnailUrl}
+            alt={video.title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={() => setThumbError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+            <Play className="w-10 h-10 text-slate-600" />
+          </div>
+        )}
+
+        {/* Hover overlay */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-300 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center opacity-0 group-hover:opacity-100 scale-75 group-hover:scale-100 transition-all duration-300">
+            <Play className="w-6 h-6 text-white ml-0.5" fill="currentColor" />
+          </div>
+        </div>
+
+        {/* New badge */}
+        {isNew && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            NEW
+          </div>
+        )}
+
+        {/* Category pill */}
+        <div className="absolute bottom-2 left-2">
+          <span className="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur text-[10px] text-slate-300 border border-white/10">
+            {CATEGORIES.find((c) => c.id === video.category)?.label ??
+              video.category}
+          </span>
+        </div>
+      </button>
+
+      {/* Card body */}
+      <div className="p-3.5 space-y-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold text-white line-clamp-2 flex-1 leading-snug">
+            {video.title}
+          </h3>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="flex-shrink-0 p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            title="Delete video"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-400 line-clamp-2">
+          {video.description}
         </p>
+
+        <div className="flex items-center justify-between pt-0.5">
+          <span
+            className={cn(
+              "px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border",
+              DIFFICULTY_STYLES[video.difficulty],
+            )}
+          >
+            {video.difficulty}
+          </span>
+          <span className="text-[10px] text-slate-500">
+            {formatDate(video.uploadedAt)}
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-const SAMPLE_VIDEOS: VideoItem[] = [
-  {
-    id: 1n,
-    title: "Smart Money Concepts (SMC) — Complete Beginner Guide",
-    description:
-      "Learn how institutional traders operate, including order blocks, fair value gaps, and liquidity sweeps.",
-    videoUrl: "https://www.youtube.com/watch?v=FjqjCr1RRWI",
-    thumbnailUrl: "https://img.youtube.com/vi/FjqjCr1RRWI/maxresdefault.jpg",
-    difficulty: "beginner",
-    uploaded_at: BigInt(Date.now() - 2 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-  {
-    id: 2n,
-    title: "EMA Strategy for Day Trading — 20/50/200 Setup",
-    description:
-      "Master the EMA crossover technique using the 20, 50, and 200 exponential moving averages for high-probability entries.",
-    videoUrl: "https://www.youtube.com/watch?v=BsM7-MNxDDI",
-    thumbnailUrl: "https://img.youtube.com/vi/BsM7-MNxDDI/maxresdefault.jpg",
-    difficulty: "beginner",
-    uploaded_at: BigInt(Date.now() - 5 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-  {
-    id: 3n,
-    title: "RSI + Supertrend Strategy — Advanced Crypto Scalping",
-    description:
-      "Combine RSI divergence with Supertrend confirmation for precision entries on BTC and ETH scalping setups.",
-    videoUrl: "https://www.youtube.com/watch?v=Kw5m5QQTHQI",
-    thumbnailUrl: "https://img.youtube.com/vi/Kw5m5QQTHQI/maxresdefault.jpg",
-    difficulty: "advanced",
-    uploaded_at: BigInt(Date.now() - 7 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-  {
-    id: 4n,
-    title: "Reading the Economic Calendar — Trading NFP & FOMC",
-    description:
-      "Learn how to trade high-impact news events like Non-Farm Payrolls and FOMC rate decisions without getting wrecked.",
-    videoUrl: "https://www.youtube.com/watch?v=MrVpxMzL_-0",
-    thumbnailUrl: "https://img.youtube.com/vi/MrVpxMzL_-0/maxresdefault.jpg",
-    difficulty: "beginner",
-    uploaded_at: BigInt(Date.now() - 10 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-  {
-    id: 5n,
-    title: "Order Flow & Liquidity Sweeps — Institutional Trading",
-    description:
-      "Advanced breakdown of how market makers hunt liquidity, set traps, and move price before the real move.",
-    videoUrl: "https://www.youtube.com/watch?v=M0XxLaBJfMc",
-    thumbnailUrl: "https://img.youtube.com/vi/M0XxLaBJfMc/maxresdefault.jpg",
-    difficulty: "advanced",
-    uploaded_at: BigInt(Date.now() - 14 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-  {
-    id: 6n,
-    title: "Gold (XAUUSD) Trading — Complete Fundamentals",
-    description:
-      "Understand what drives gold prices, safe-haven flows, DXY correlation, and how to trade gold like a professional.",
-    videoUrl: "https://www.youtube.com/watch?v=Q7LX6bCPFq8",
-    thumbnailUrl: "https://img.youtube.com/vi/Q7LX6bCPFq8/maxresdefault.jpg",
-    difficulty: "beginner",
-    uploaded_at: BigInt(Date.now() - 18 * 24 * 60 * 60 * 1000) * 1_000_000n,
-  },
-];
+// ─── PlayerModal ──────────────────────────────────────────────────────────────
 
-export default function VideosPage() {
-  const { user } = useAuth();
-  const { actor, isFetching } = useActor();
-  const isAdmin = user?.role === "admin" || user?.email === ADMIN_EMAIL;
-
-  const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [difficultyFilter, setDifficultyFilter] =
-    useState<DifficultyFilter>("all");
-
-  const [playingVideo, setPlayingVideo] = useState<VideoItem | null>(null);
-
-  const [showUpload, setShowUpload] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadForm, setUploadForm] = useState({
-    title: "",
-    description: "",
-    videoUrl: "",
-    thumbnailUrl: "",
-    difficulty: "beginner" as "beginner" | "advanced",
-  });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchVideos = useCallback(async () => {
-    if (!actor) {
-      setVideos(SAMPLE_VIDEOS);
-      setLoading(false);
-      return;
-    }
-    try {
-      setError(null);
-      const result = await actor.getVideos();
-      const sorted = [...result].sort((a, b) =>
-        b.uploaded_at > a.uploaded_at ? 1 : -1,
-      );
-      // Show sample videos if backend has none
-      setVideos(sorted.length > 0 ? sorted : SAMPLE_VIDEOS);
-    } catch (e) {
-      console.error(e);
-      // Fall back to sample videos on error
-      setVideos(SAMPLE_VIDEOS);
-      setError(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [actor]);
-
+function PlayerModal({
+  video,
+  onClose,
+}: { video: VideoItem; onClose: () => void }) {
   useEffect(() => {
-    if (!actor || isFetching) return;
-    setLoading(true);
-    fetchVideos();
-  }, [actor, isFetching, fetchVideos]);
-
-  const filteredVideos = videos.filter((v) => {
-    const matchesSearch = v.title.toLowerCase().includes(search.toLowerCase());
-    const matchesDifficulty =
-      difficultyFilter === "all" || v.difficulty === difficultyFilter;
-    return matchesSearch && matchesDifficulty;
-  });
-
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!actor) return;
-    if (!uploadForm.title.trim() || !uploadForm.description.trim()) {
-      setUploadError("Title and description are required.");
-      return;
-    }
-    if (!uploadForm.videoUrl.trim()) {
-      setUploadError("Please provide a video URL.");
-      return;
-    }
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const difficulty =
-        uploadForm.difficulty === "advanced"
-          ? VideoDifficulty.advanced
-          : VideoDifficulty.beginner;
-      await actor.addVideo(
-        uploadForm.title.trim(),
-        uploadForm.description.trim(),
-        uploadForm.videoUrl.trim(),
-        uploadForm.thumbnailUrl.trim(),
-        difficulty,
-      );
-      setShowUpload(false);
-      setUploadForm({
-        title: "",
-        description: "",
-        videoUrl: "",
-        thumbnailUrl: "",
-        difficulty: "beginner",
-      });
-      setLoading(true);
-      await fetchVideos();
-    } catch (err) {
-      console.error(err);
-      setUploadError("Failed to upload video. Please try again.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleDelete = async (id: bigint) => {
-    if (!actor) return;
-    try {
-      await actor.deleteVideo(id);
-      setVideos((prev) => prev.filter((v) => v.id !== id));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const closePlayerOnBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) setPlayingVideo(null);
-  };
-  const closePlayerOnKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") setPlayingVideo(null);
-  };
-  const closeUploadOnBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) setShowUpload(false);
-  };
-  const closeUploadOnKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") setShowUpload(false);
-  };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Video Learning</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Educational content for traders and analysts
-          </p>
-        </div>
-        {isAdmin && (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+    >
+      <div className="w-full max-w-4xl bg-slate-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/8">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border flex-shrink-0",
+                DIFFICULTY_STYLES[video.difficulty],
+              )}
+            >
+              {video.difficulty}
+            </span>
+            <h2 className="text-sm font-semibold text-white truncate">
+              {video.title}
+            </h2>
+          </div>
           <button
             type="button"
-            data-ocid="videos.open_modal_button"
-            onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all text-sm font-medium"
+            onClick={onClose}
+            className="ml-3 flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
           >
-            <Upload className="w-4 h-4" />
-            Upload Video
+            <X className="w-5 h-5" />
           </button>
-        )}
-      </div>
+        </div>
 
-      {/* Search & Filter */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            id="video-search"
-            type="text"
-            placeholder="Search videos..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            data-ocid="videos.search_input"
-            className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+        {/* Player */}
+        <div className="bg-black aspect-video">
+          <iframe
+            src={getEmbedUrl(video.youtubeId)}
+            title={video.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allowFullScreen
+            className="w-full h-full"
           />
         </div>
-        <div className="flex gap-2" data-ocid="videos.tab">
-          {(["all", "beginner", "advanced"] as const).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDifficultyFilter(d)}
-              className={cn(
-                "px-3 py-2 rounded-lg text-xs font-medium capitalize border transition-all",
-                difficultyFilter === d
-                  ? d === "advanced"
-                    ? "bg-purple-500/20 border-purple-500/40 text-purple-400"
-                    : d === "beginner"
-                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
-                      : "bg-primary/20 border-primary/40 text-primary"
-                  : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-border/60",
-              )}
-            >
-              {d === "all" ? "All" : d.charAt(0).toUpperCase() + d.slice(1)}
-            </button>
-          ))}
+
+        {/* Footer */}
+        <div className="px-5 py-4 space-y-1.5 bg-slate-800/50">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <span className="px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+              {CATEGORIES.find((c) => c.id === video.category)?.label}
+            </span>
+            <span>·</span>
+            <span>{formatDate(video.uploadedAt)}</span>
+          </div>
+          {video.description && (
+            <p className="text-sm text-slate-400">{video.description}</p>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Error */}
-      {error && (
-        <div
-          data-ocid="videos.error_state"
-          className="flex items-center gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm"
-        >
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          {error}
+// ─── AddVideoModal ────────────────────────────────────────────────────────────
+
+interface AddFormState {
+  title: string;
+  description: string;
+  youtubeUrl: string;
+  difficulty: DifficultyLevel;
+  category: Category;
+}
+
+function AddVideoModal({
+  form,
+  previewId,
+  error,
+  adding,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  form: AddFormState;
+  previewId: string;
+  error: string;
+  adding: boolean;
+  onChange: (patch: Partial<AddFormState>) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+    >
+      <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/8">
+          <h2 className="text-base font-semibold text-white">
+            Add YouTube Video
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      )}
 
-      {/* Loading */}
-      {loading && (
-        <div
-          data-ocid="videos.loading_state"
-          className="flex items-center justify-center py-20"
+        <form
+          onSubmit={onSubmit}
+          className="p-5 space-y-4 max-h-[80vh] overflow-y-auto"
         >
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        </div>
-      )}
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              {error}
+            </div>
+          )}
 
-      {/* Empty State */}
-      {!loading && !error && filteredVideos.length === 0 && (
-        <div
-          data-ocid="videos.empty_state"
-          className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground"
-        >
-          <div className="w-16 h-16 rounded-full bg-card border border-border flex items-center justify-center">
-            <Play className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <div className="text-center">
-            <p className="font-medium text-foreground">No videos yet</p>
-            <p className="text-sm mt-1">
-              {isAdmin
-                ? "Upload your first video to get started."
-                : "Check back soon for educational content."}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Video Grid */}
-      {!loading && filteredVideos.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredVideos.map((video, idx) => (
-            <div
-              key={String(video.id)}
-              data-ocid={`videos.item.${idx + 1}`}
-              className="group bg-card/80 backdrop-blur border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5"
+          {/* YouTube URL */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="add-youtube-url"
+              className="text-xs font-medium text-slate-400 uppercase tracking-wide"
             >
-              {/* Thumbnail — use a button for semantics */}
-              <button
-                type="button"
-                className="relative w-full aspect-video bg-card overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                onClick={() => setPlayingVideo(video)}
-                aria-label={`Play ${video.title}`}
-              >
-                {video.thumbnailUrl ? (
-                  <img
-                    src={video.thumbnailUrl}
-                    alt={video.title}
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <ThumbnailPlaceholder
-                    difficulty={video.difficulty}
-                    title={video.title}
-                  />
-                )}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all duration-300">
-                  <div className="w-12 h-12 rounded-full bg-primary/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-75 group-hover:scale-100 transition-all duration-300 shadow-lg shadow-primary/30">
-                    <Play
-                      className="w-5 h-5 text-background ml-0.5"
-                      fill="currentColor"
-                    />
-                  </div>
-                </div>
-              </button>
-
-              {/* Card Body */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-foreground line-clamp-2 flex-1">
-                    {video.title}
-                  </h3>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      data-ocid={`videos.delete_button.${idx + 1}`}
-                      onClick={() => handleDelete(video.id)}
-                      className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      title="Delete video"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  {video.description}
-                </p>
-
-                <div className="flex items-center justify-between">
-                  <span
-                    className={cn(
-                      "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border",
-                      video.difficulty === "advanced"
-                        ? "bg-purple-500/15 border-purple-500/30 text-purple-400"
-                        : "bg-emerald-500/15 border-emerald-500/30 text-emerald-400",
-                    )}
-                  >
-                    {video.difficulty}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    {formatDate(video.uploaded_at)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Video Player Modal */}
-      {playingVideo && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-          data-ocid="videos.modal"
-          onClick={closePlayerOnBackdrop}
-          onKeyDown={closePlayerOnKey}
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: backdrop dismiss
-          tabIndex={0}
-        >
-          <div className="w-full max-w-4xl bg-card border border-border rounded-2xl overflow-hidden shadow-2xl shadow-black/60">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-base font-semibold text-foreground truncate pr-4">
-                {playingVideo.title}
-              </h2>
-              <button
-                type="button"
-                data-ocid="videos.close_button"
-                onClick={() => setPlayingVideo(null)}
-                className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-black aspect-video">
-              {isYouTube(playingVideo.videoUrl) ? (
-                <iframe
-                  src={getYouTubeEmbedUrl(playingVideo.videoUrl)}
-                  title={playingVideo.title}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="w-full h-full"
-                />
-              ) : (
-                // biome-ignore lint/a11y/useMediaCaption: user-uploaded educational video
-                <video
-                  src={playingVideo.videoUrl}
-                  controls
-                  autoPlay
-                  className="w-full h-full"
-                />
-              )}
-            </div>
-
-            <div className="px-5 py-4 space-y-2">
-              <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border",
-                    playingVideo.difficulty === "advanced"
-                      ? "bg-purple-500/15 border-purple-500/30 text-purple-400"
-                      : "bg-emerald-500/15 border-emerald-500/30 text-emerald-400",
-                  )}
-                >
-                  {playingVideo.difficulty}
-                </span>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {formatDate(playingVideo.uploaded_at)}
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {playingVideo.description}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Modal */}
-      {showUpload && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-          data-ocid="videos.dialog"
-          onClick={closeUploadOnBackdrop}
-          onKeyDown={closeUploadOnKey}
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: backdrop dismiss
-          tabIndex={0}
-        >
-          <div className="w-full max-w-lg bg-card border border-border rounded-2xl overflow-hidden shadow-2xl shadow-black/60">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-base font-semibold text-foreground">
-                Upload Video
-              </h2>
-              <button
-                type="button"
-                data-ocid="videos.cancel_button"
-                onClick={() => setShowUpload(false)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleUpload}
-              className="p-5 space-y-4 max-h-[80vh] overflow-y-auto"
-            >
-              {uploadError && (
-                <div
-                  data-ocid="videos.error_state"
-                  className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs"
-                >
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  {uploadError}
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="upload-title"
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Title <span className="text-red-400">*</span>
-                </label>
-                <input
-                  id="upload-title"
-                  type="text"
-                  value={uploadForm.title}
-                  onChange={(e) =>
-                    setUploadForm((p) => ({ ...p, title: e.target.value }))
-                  }
-                  data-ocid="videos.input"
-                  placeholder="e.g. Introduction to Smart Money Concepts"
-                  required
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="upload-description"
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Description <span className="text-red-400">*</span>
-                </label>
-                <textarea
-                  id="upload-description"
-                  value={uploadForm.description}
-                  onChange={(e) =>
-                    setUploadForm((p) => ({
-                      ...p,
-                      description: e.target.value,
-                    }))
-                  }
-                  data-ocid="videos.textarea"
-                  placeholder="Describe what viewers will learn..."
-                  rows={3}
-                  required
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors resize-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="upload-video-url"
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Video URL
-                </label>
-                <input
-                  id="upload-video-url"
-                  type="text"
-                  value={uploadForm.videoUrl}
-                  onChange={(e) =>
-                    setUploadForm((p) => ({ ...p, videoUrl: e.target.value }))
-                  }
-                  placeholder="https://youtube.com/watch?v=... or direct MP4 URL"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
-                />
-                <div className="flex items-center gap-3 my-2">
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-xs text-muted-foreground">OR</span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-                <input
-                  ref={fileInputRef}
-                  id="upload-file"
-                  type="file"
-                  accept="video/mp4"
-                  data-ocid="videos.upload_button"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const objectUrl = URL.createObjectURL(file);
-                      setUploadForm((p) => ({ ...p, videoUrl: objectUrl }));
-                    }
+              YouTube URL <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="add-youtube-url"
+              type="text"
+              value={form.youtubeUrl}
+              onChange={(e) => onChange({ youtubeUrl: e.target.value })}
+              placeholder="https://youtube.com/watch?v=... or youtu.be/..."
+              className="w-full px-3 py-2.5 bg-slate-800 border border-white/8 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+            />
+            {/* Auto thumbnail preview */}
+            {previewId && (
+              <div className="mt-2 rounded-lg overflow-hidden border border-white/8 aspect-video bg-slate-800">
+                <img
+                  src={getThumbnail(previewId)}
+                  alt="Thumbnail preview"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.opacity = "0";
                   }}
-                  className="w-full text-xs text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-primary/20 file:text-primary hover:file:bg-primary/30 cursor-pointer"
                 />
               </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="upload-thumbnail"
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Thumbnail URL{" "}
-                  <span className="text-muted-foreground/60 normal-case">
-                    (optional)
-                  </span>
-                </label>
-                <input
-                  id="upload-thumbnail"
-                  type="text"
-                  value={uploadForm.thumbnailUrl}
-                  onChange={(e) =>
-                    setUploadForm((p) => ({
-                      ...p,
-                      thumbnailUrl: e.target.value,
-                    }))
-                  }
-                  placeholder="https://... (leave blank for auto-generated)"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="upload-difficulty"
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Difficulty
-                </label>
-                <select
-                  id="upload-difficulty"
-                  value={uploadForm.difficulty}
-                  onChange={(e) =>
-                    setUploadForm((p) => ({
-                      ...p,
-                      difficulty: e.target.value as "beginner" | "advanced",
-                    }))
-                  }
-                  data-ocid="videos.select"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary/50 transition-colors"
-                >
-                  <option value="beginner">Beginner</option>
-                  <option value="advanced">Advanced</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  data-ocid="videos.cancel_button"
-                  onClick={() => setShowUpload(false)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-border/60 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  data-ocid="videos.submit_button"
-                  disabled={uploading}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-all text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      Add Video
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
-        </div>
-      )}
+
+          {/* Title */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="add-title"
+              className="text-xs font-medium text-slate-400 uppercase tracking-wide"
+            >
+              Title <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="add-title"
+              type="text"
+              value={form.title}
+              onChange={(e) => onChange({ title: e.target.value })}
+              placeholder="e.g. Smart Money Concepts Explained"
+              className="w-full px-3 py-2.5 bg-slate-800 border border-white/8 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="add-description"
+              className="text-xs font-medium text-slate-400 uppercase tracking-wide"
+            >
+              Description
+            </label>
+            <textarea
+              id="add-description"
+              value={form.description}
+              onChange={(e) => onChange({ description: e.target.value })}
+              placeholder="What will viewers learn?"
+              rows={3}
+              className="w-full px-3 py-2.5 bg-slate-800 border border-white/8 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 transition-colors resize-none"
+            />
+          </div>
+
+          {/* Category */}
+          <div className="space-y-1.5">
+            {/* biome-ignore lint/a11y/noLabelWithoutControl: button group */}
+            <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+              Category
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {CATEGORIES.filter((c) => c.id !== "all").map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => onChange({ category: cat.id })}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-all",
+                    form.category === cat.id
+                      ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-400"
+                      : "bg-slate-800 border-white/8 text-slate-400 hover:text-white",
+                  )}
+                >
+                  {cat.icon}
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Difficulty */}
+          <div className="space-y-1.5">
+            {/* biome-ignore lint/a11y/noLabelWithoutControl: button group */}
+            <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+              Difficulty
+            </label>
+            <div className="flex gap-2">
+              {(
+                ["beginner", "intermediate", "advanced"] as DifficultyLevel[]
+              ).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => onChange({ difficulty: d })}
+                  className={cn(
+                    "flex-1 py-2 rounded-lg text-xs font-medium border capitalize transition-all",
+                    form.difficulty === d
+                      ? DIFFICULTY_STYLES[d].replace("15", "20")
+                      : "bg-slate-800 border-white/8 text-slate-400 hover:text-white",
+                  )}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-lg border border-white/8 text-sm text-slate-400 hover:text-white hover:border-white/15 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={adding}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-sm font-medium disabled:opacity-50"
+            >
+              {adding ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              {adding ? "Adding..." : "Add Video"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

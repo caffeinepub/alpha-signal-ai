@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import type { SFISignal } from "../hooks/useSFIEngine";
+import { getConfirmationData } from "../hooks/useSFIEngine";
 
 interface SFISignalCardProps {
   asset: string;
@@ -11,14 +12,6 @@ interface SFISignalCardProps {
 function formatPrice(asset: string, value: number): string {
   if (value === 0) return "—";
   if (asset === "EUR/USD") return value.toFixed(4);
-  if (asset === "XAU/USD") {
-    return value.toLocaleString("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
   return value.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
@@ -42,7 +35,10 @@ const ASSET_LABEL: Record<string, string> = {
 function SFIColorDot({
   color,
   pulse,
-}: { color: "GREEN" | "RED" | "NEUTRAL"; pulse: boolean }) {
+}: {
+  color: "GREEN" | "RED" | "NEUTRAL";
+  pulse: boolean;
+}) {
   const cls =
     color === "GREEN"
       ? "bg-emerald-400"
@@ -62,23 +58,21 @@ function SFIColorDot({
 }
 
 function SignalBadge({ signal }: { signal: "BUY" | "SELL" | "WAIT" }) {
-  if (signal === "BUY") {
+  if (signal === "BUY")
     return (
       <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 tracking-widest">
-        ▲ BUY
+        ▲ BUY 🟢
       </span>
     );
-  }
-  if (signal === "SELL") {
+  if (signal === "SELL")
     return (
       <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 border border-red-500/40 text-red-300 tracking-widest">
-        ▼ SELL
+        ▼ SELL 🔴
       </span>
     );
-  }
   return (
     <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-900/30 border border-amber-500/30 text-amber-300 tracking-widest">
-      ◆ WAIT
+      ◆ WAIT ⚠️
     </span>
   );
 }
@@ -95,6 +89,8 @@ function TimeframePanel({
   const sig = signal?.signal ?? "WAIT";
   const color = signal?.sfiColor ?? "NEUTRAL";
   const isSideways = signal?.isSideways ?? false;
+  const conf = signal && signal.entry > 0 ? getConfirmationData(signal) : null;
+  const hasData = signal && signal.entry > 0;
 
   const borderClass =
     sig === "BUY"
@@ -113,71 +109,104 @@ function TimeframePanel({
         <SFIColorDot color={color} pulse={sig !== "WAIT"} />
       </div>
 
-      {/* Signal badge */}
-      <div className="flex items-center gap-2">
-        <SignalBadge signal={sig} />
-        {isSideways && (
-          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 uppercase tracking-wider">
-            Sideways Market
+      {/* Loading state */}
+      {!hasData ? (
+        <div className="flex items-center gap-2 py-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400/50 animate-pulse" />
+          <span className="text-[11px] text-zinc-500 font-mono">
+            Loading signals…
           </span>
-        )}
-      </div>
-
-      {/* Price levels */}
-      {signal && signal.entry > 0 ? (
-        <div className="space-y-0.5 text-[11px] font-mono">
-          <div className="flex justify-between gap-2">
-            <span className="text-zinc-500">Entry</span>
-            <span className="text-zinc-200">
-              {formatPrice(asset, signal.entry)}
-            </span>
-          </div>
-          <div className="flex justify-between gap-2">
-            <span className="text-zinc-500">SL</span>
-            <span className="text-red-400">
-              {formatPrice(asset, signal.stopLoss)}
-            </span>
-          </div>
-          <div className="flex justify-between gap-2">
-            <span className="text-zinc-500">Target</span>
-            <span className="text-emerald-400">
-              {formatPrice(asset, signal.target)}
-            </span>
-          </div>
-          <div className="mt-1 pt-1 border-t border-white/5">
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-600">EMA 50</span>
-              <span className="text-cyan-500/70 text-[10px]">
-                {formatPrice(asset, signal.ema50)}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-600">EMA 200</span>
-              <span className="text-violet-500/70 text-[10px]">
-                {formatPrice(asset, signal.ema200)}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2 mt-0.5">
-              <span className="text-zinc-600">Support</span>
-              <span className="text-emerald-600/70 text-[10px]">
-                {formatPrice(asset, signal.support)}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-600">Resistance</span>
-              <span className="text-red-600/70 text-[10px]">
-                {formatPrice(asset, signal.resistance)}
-              </span>
-            </div>
-          </div>
-          <div className="text-[9px] text-zinc-600 mt-0.5">
-            EMA — Confirmation Only
-          </div>
         </div>
       ) : (
-        <div className="text-[11px] text-zinc-600 font-mono py-1">
-          Awaiting candle data…
-        </div>
+        <>
+          {/* ── SIGNAL ── */}
+          <div className="space-y-1">
+            <p className="text-[9px] uppercase tracking-widest text-zinc-600 font-bold">
+              Signal
+            </p>
+            <div className="flex items-center gap-2">
+              <SignalBadge signal={sig} />
+              {isSideways && (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 uppercase tracking-wider">
+                  Sideways
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Price levels */}
+          <div className="space-y-0.5 text-[11px] font-mono">
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500">Entry</span>
+              <span className="text-zinc-200">
+                {formatPrice(asset, signal.entry)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500">SL</span>
+              <span className="text-red-400">
+                {formatPrice(asset, signal.stopLoss)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500">Target</span>
+              <span className="text-emerald-400">
+                {formatPrice(asset, signal.target)}
+              </span>
+            </div>
+          </div>
+
+          {/* ── CONFIRMATION (display only) ── */}
+          {conf && (
+            <div className="bg-black/30 rounded-lg px-2 py-2 space-y-1">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-600 border-b border-white/5 pb-1">
+                Confirmation Only
+              </p>
+              <div className="flex justify-between text-[10px]">
+                <span className="text-zinc-500">Inst. Bias</span>
+                <span
+                  className={
+                    conf.institutionalBias === "Bullish"
+                      ? "text-emerald-400"
+                      : conf.institutionalBias === "Bearish"
+                        ? "text-red-400"
+                        : "text-amber-400"
+                  }
+                >
+                  {conf.institutionalBias}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px]">
+                <span className="text-zinc-500">EMA Trend</span>
+                <span
+                  className={
+                    conf.emaTrend === "Uptrend"
+                      ? "text-cyan-400"
+                      : conf.emaTrend === "Downtrend"
+                        ? "text-red-400"
+                        : "text-amber-400"
+                  }
+                >
+                  {conf.emaTrend}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px]">
+                <span className="text-zinc-500">Liquidity</span>
+                <span
+                  className={
+                    conf.liquidity === "Above support"
+                      ? "text-emerald-400"
+                      : conf.liquidity === "Below support"
+                        ? "text-red-400"
+                        : "text-amber-400"
+                  }
+                >
+                  {conf.liquidity}
+                </span>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -222,13 +251,13 @@ export function SFISignalCard({
         </div>
       </div>
 
-      {/* RR Badge */}
+      {/* Badges */}
       <div className="flex items-center gap-1.5">
         <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-900/30 border border-cyan-500/20 text-cyan-400 uppercase tracking-wider">
           Risk:Reward 1:3
         </span>
-        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 uppercase tracking-wider">
-          SFI Engine
+        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-500/20 text-emerald-400 uppercase tracking-wider">
+          🔒 SFI Locked
         </span>
       </div>
 

@@ -91,7 +91,7 @@ function analyzeCandles(
 ): Omit<GeminiResult, "isThinking" | "lastUpdated"> {
   if (candles.length < 5) {
     return {
-      analysisText: "Neutral — Gemini 2.0 Flash awaiting confluence signal",
+      analysisText: "Neutral — Gemini 1.5 Pro awaiting confluence signal",
       signal: "NEUTRAL",
       geminiConfidence: 50,
       ema50: 0,
@@ -172,21 +172,20 @@ function analyzeCandles(
   if (rsi14 < 30 && nearLow) {
     signal = "STRONG BUY";
     analysisText =
-      "Strong Buy — Gemini 2.0 Flash identifies oversold liquidity sweep";
+      "Strong Buy — Gemini 1.5 Pro identifies oversold liquidity sweep";
   } else if (rsi14 > 70 && nearHigh) {
     signal = "STRONG SELL";
     analysisText =
-      "Strong Sell — Gemini 2.0 Flash detects overbought distribution zone";
+      "Strong Sell — Gemini 1.5 Pro detects overbought distribution zone";
   } else if (currentPrice > ema50 && currentPrice > ema200) {
     signal = "BUY";
-    analysisText = "Buy — Gemini 2.0 Flash confirms bullish trend continuation";
+    analysisText = "Buy — Gemini 1.5 Pro confirms bullish trend continuation";
   } else if (currentPrice < ema50 && currentPrice < ema200) {
     signal = "SELL";
-    analysisText =
-      "Sell — Gemini 2.0 Flash confirms bearish trend continuation";
+    analysisText = "Sell — Gemini 1.5 Pro confirms bearish trend continuation";
   } else {
     signal = "NEUTRAL";
-    analysisText = "Neutral — Gemini 2.0 Flash awaiting confluence signal";
+    analysisText = "Neutral — Gemini 1.5 Pro awaiting confluence signal";
   }
 
   return {
@@ -207,7 +206,7 @@ function analyzeCandles(
 
 function defaultResult(): GeminiResult {
   return {
-    analysisText: "Neutral — Gemini 2.0 Flash awaiting confluence signal",
+    analysisText: "Neutral — Gemini 1.5 Pro awaiting confluence signal",
     signal: "NEUTRAL",
     geminiConfidence: 50,
     ema50: 0,

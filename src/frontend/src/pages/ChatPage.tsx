@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import CompactSFIWidget from "../components/CompactSFIWidget";
 
 const GEMINI_KEY = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_KEY}`;
 const SYSTEM_PROMPT =
   "You are Alpha Signal AI, a professional trading assistant. Be concise and actionable. Focus on BTC, gold (XAU/USD), and EUR/USD trading analysis.";
 

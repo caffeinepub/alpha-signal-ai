@@ -94,6 +94,45 @@ export function useBinanceKlines(): BinanceKlinesState {
   const reconnectAttemptsRef = useRef(0);
   const unmountedRef = useRef(false);
 
+  // REST seed: fetch historical candles on mount so RSI/SFI works immediately
+  const seedFromREST = useCallback(async () => {
+    try {
+      const pairs = [
+        { symbol: "BTCUSDT", interval: "3m", set: setCandles3mBtc },
+        { symbol: "BTCUSDT", interval: "15m", set: setCandles15mBtc },
+        { symbol: "PAXGUSDT", interval: "3m", set: setCandles3mXau },
+        { symbol: "PAXGUSDT", interval: "15m", set: setCandles15mXau },
+      ];
+      await Promise.all(
+        pairs.map(async ({ symbol, interval, set }) => {
+          const res = await fetch(
+            `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=200`,
+          );
+          if (!res.ok) return;
+          const rows: [
+            number,
+            string,
+            string,
+            string,
+            string,
+            string,
+            ...unknown[],
+          ][] = await res.json();
+          const candles: Candle[] = rows.map((r) => ({
+            time: r[0],
+            open: Number.parseFloat(r[1]),
+            high: Number.parseFloat(r[2]),
+            low: Number.parseFloat(r[3]),
+            close: Number.parseFloat(r[4]),
+            volume: Number.parseFloat(r[5]),
+            isClosed: true,
+          }));
+          set(candles);
+        }),
+      );
+    } catch {}
+  }, []);
+
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
 
@@ -168,9 +207,16 @@ export function useBinanceKlines(): BinanceKlinesState {
   useEffect(() => {
     unmountedRef.current = false;
     connect();
+    // Seed initial candle data from REST so RSI/SFI calculates immediately
+    seedFromREST();
+    // Also refresh every 15 seconds so prices stay live
+    const refreshInterval = setInterval(() => {
+      if (!unmountedRef.current) seedFromREST();
+    }, 15000);
 
     return () => {
       unmountedRef.current = true;
+      clearInterval(refreshInterval);
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -184,7 +230,7 @@ export function useBinanceKlines(): BinanceKlinesState {
         wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, [connect, seedFromREST]);
 
   return {
     candles3m_btc,

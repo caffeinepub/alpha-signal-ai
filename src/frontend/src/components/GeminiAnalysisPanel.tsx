@@ -104,7 +104,7 @@ function AssetGeminiCard({
             >
               <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
               <span className="text-[11px] text-muted-foreground italic">
-                Generating Insight via Gemini 2.0 Flash...
+                Generating Insight via Gemini 1.5 Pro...
               </span>
             </motion.div>
           ) : (
@@ -228,7 +228,7 @@ export function GeminiAnalysisPanel({
         <div className="flex items-center gap-2">
           <Bot className="w-4 h-4 text-primary" />
           <span className="text-sm font-bold text-foreground">
-            Gemini 2.0 Flash Analysis
+            Gemini 1.5 Pro Analysis
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -256,7 +256,7 @@ export function GeminiAnalysisPanel({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
             </span>
-            API: GEMINI-2.0-FLASH · ACTIVE &amp; VERIFIED
+            API: GEMINI-1.5-PRO · ACTIVE &amp; VERIFIED
           </Badge>
         </div>
       </div>
@@ -288,7 +288,7 @@ export function GeminiAnalysisPanel({
       {/* Footer */}
       <div className="flex items-center justify-between mt-3">
         <p className="text-[9px] text-muted-foreground font-mono">
-          Powered by Gemini 2.0 Flash · Secure backend outcall · Refreshes every
+          Powered by Gemini 1.5 Pro · Secure backend outcall · Refreshes every
           60s
         </p>
         <div className="flex items-center gap-1">

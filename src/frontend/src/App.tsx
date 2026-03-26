@@ -6,7 +6,7 @@ import {
   createRouter,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Header from "./components/Header";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Sidebar from "./components/Sidebar";
@@ -21,48 +21,22 @@ import Research from "./pages/Research";
 import Signals from "./pages/Signals";
 import VideosPage from "./pages/VideosPage";
 
-const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-  "/": {
-    title: "Dashboard",
-    subtitle: "Market overview and AI trading insights",
-  },
-  "/charts": {
-    title: "Charts",
-    subtitle: "Advanced candlestick analysis with EMA overlays",
-  },
-  "/signals": {
-    title: "AI Signals",
-    subtitle: "AI-powered trading signals and smart money concepts",
-  },
-  "/liquidation": {
-    title: "Liquidation Heatmap",
-    subtitle: "Long & short liquidation zones and market pressure",
-  },
-  "/performance": {
-    title: "Performance",
-    subtitle: "Trading analytics and historical performance",
-  },
-  "/research": {
-    title: "Research",
-    subtitle: "AI-powered institutional research reports",
-  },
-  "/admin": {
-    title: "Admin Dashboard",
-    subtitle: "User management and platform analytics",
-  },
-  "/chat": {
-    title: "AI Chat",
-    subtitle: "Ask our AI assistant about signals and markets",
-  },
-  "/videos": {
-    title: "Video Learning",
-    subtitle: "Educational trading and market analysis videos",
-  },
+const PAGE_META: Record<string, { title: string }> = {
+  "/": { title: "Dashboard" },
+  "/charts": { title: "Charts" },
+  "/signals": { title: "AI Signals" },
+  "/liquidation": { title: "Liquidation Heatmap" },
+  "/performance": { title: "Performance" },
+  "/research": { title: "Research" },
+  "/admin": { title: "Admin Dashboard" },
+  "/chat": { title: "AI Chat" },
+  "/videos": { title: "Video Learning" },
 };
 
 function AppLayout() {
   const location = useLocation();
   const meta = PAGE_META[location.pathname] || PAGE_META["/"];
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     document.title = `${meta.title} — Alpha Signal AI`;
@@ -70,9 +44,13 @@ function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar currentPath={location.pathname} />
+      <Sidebar
+        currentPath={location.pathname}
+        mobileOpen={sidebarOpen}
+        setMobileOpen={setSidebarOpen}
+      />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header title={meta.title} subtitle={meta.subtitle} />
+        <Header onMenuToggle={() => setSidebarOpen((o) => !o)} />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
