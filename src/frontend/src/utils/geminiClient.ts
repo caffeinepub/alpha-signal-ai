@@ -1,6 +1,6 @@
 // Gemini 1.5 Pro — frontend-only calls
-// API Key: AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8
-const GEMINI_API_KEY = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
+// API Key: AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ (Master Signal Sync key)
+const GEMINI_API_KEY = "AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ";
 const GEMINI_MODEL = "gemini-1.5-pro";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -23,6 +23,13 @@ export interface GeminiResearchResult {
   tradeBias: string;
   tradeSetup: string;
   overallRating: string;
+}
+
+export interface GeminiInstitutionalBias {
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  confidence: number; // 0–100
+  reasoning: string;
+  alignsWithSFI: boolean;
 }
 
 function extractSection(text: string, ...headers: string[]): string {
@@ -63,6 +70,63 @@ async function fetchGemini(body: object, retries = 2): Promise<Response> {
     }
   }
   throw new Error("Gemini fetch failed after retries");
+}
+
+// ── Institutional Bias Confirmation ──────────────────────────────────────────
+// Used by the SFI signal cards to confirm institutional alignment BEFORE
+// the signal is shown. This is DISPLAY/CONFIRMATION only — the SFI state
+// machine remains the sole signal authority.
+
+export async function callGeminiInstitutionalBias(
+  asset: string,
+  sfiSignal: "BUY" | "SELL" | "WAIT",
+  currentPrice: number,
+  rsi: number,
+): Promise<GeminiInstitutionalBias> {
+  const prompt = `You are an institutional trading desk analyst.
+Asset: ${asset}
+Current Price: ${currentPrice}
+RSI: ${rsi.toFixed(1)}
+SFI Engine Signal: ${sfiSignal}
+
+Briefly assess the institutional bias for ${asset} right now.
+Respond in exactly this format (no extra text):
+BIAS: BULLISH or BEARISH or NEUTRAL
+CONFIDENCE: number 0-100
+ALIGNS_WITH_SFI: YES or NO
+REASONING: one sentence only`;
+
+  try {
+    const response = await fetchGemini({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 150 },
+    });
+    const data = await response.json();
+    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    const biasMatch = text.match(/BIAS:\s*(BULLISH|BEARISH|NEUTRAL)/i);
+    const confMatch = text.match(/CONFIDENCE:\s*(\d+)/i);
+    const alignsMatch = text.match(/ALIGNS_WITH_SFI:\s*(YES|NO)/i);
+    const reasoningMatch = text.match(/REASONING:\s*(.+)/i);
+
+    return {
+      bias:
+        (biasMatch?.[1]?.toUpperCase() as GeminiInstitutionalBias["bias"]) ??
+        "NEUTRAL",
+      confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 50,
+      alignsWithSFI: alignsMatch?.[1]?.toUpperCase() === "YES",
+      reasoning:
+        reasoningMatch?.[1]?.trim() ?? "No additional context available.",
+    };
+  } catch (err) {
+    console.error("[Gemini] callGeminiInstitutionalBias failed:", err);
+    return {
+      bias: "NEUTRAL",
+      confidence: 50,
+      alignsWithSFI: true,
+      reasoning: "Confirmation unavailable.",
+    };
+  }
 }
 
 export async function callGeminiResearch(
@@ -107,7 +171,6 @@ Be specific, data-driven, and professional. Write as an institutional analyst.`;
   const data = await response.json();
   console.log("[Gemini] Raw response:", JSON.stringify(data, null, 2));
 
-  // RAW TEXT MODE — show response as-is, no complex JSON parsing
   const rawText: string =
     data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
@@ -154,7 +217,6 @@ Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a
     const data = await response.json();
     const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
-    // RAW TEXT MODE — extract key values with simple regex, no JSON.parse
     const biasMatch = text.match(/\b(BULLISH|BEARISH|NEUTRAL)\b/i);
     const confMatch = text.match(/(\d{1,3})\s*%?\s*confidence/i);
     const signalMatch = text.match(

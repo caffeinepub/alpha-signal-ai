@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Candle } from "./useBinanceKlines";
 
-// ─── SFI Follow Trend Level 1 — Exact Pine Script Logic ──────────────────────
+// ─── SFI Follow Trend Level 1 — State-Based Trailing Stop Logic ──────────────
 //
 //  hlc3       = (high + low + close) / 3
 //  Basis      = (EMA(hlc3, 10) + EMA(hlc3, 20)) / 2
@@ -10,23 +10,29 @@ import type { Candle } from "./useBinanceKlines";
 //  UpperBand  = Basis + (smoothVol × 2.0)
 //  LowerBand  = Basis − (smoothVol × 2.0)
 //
-//  TREND STATE MACHINE (no simple crossings):
-//    - Start NEUTRAL.  First break initialises state.
-//    - If BULLISH  and close < LowerBand  → switch BEARISH  → signal = SELL
-//    - If BEARISH  and close > UpperBand  → switch BULLISH  → signal = BUY
-//    - Otherwise  hold state  (no flip)
+//  TREND STATE MACHINE (State-Based Trailing Stop):
+//    - Start NEUTRAL. First confirmed break initialises state.
+//    - BUY  triggers ONLY when candle CLOSES ABOVE UpperBand.
+//    - SELL triggers ONLY when candle CLOSES BELOW LowerBand.
+//    - State is LOCKED — stays SELL even on bounces. Only the OPPOSITE
+//      band break can flip the state.
+//    - Signal NEVER resets to WAIT once state is established.
+//
+//  FIXED ENTRY & SL:
+//    - Entry  = close of the candle that triggered the flip.
+//    - SL     = UpperBand (for SELL) or LowerBand (for BUY) at the flip.
+//    - Target = Entry ± 3 × |SL − Entry|   (fixed 1:3 Risk/Reward).
 //
 //  STRICT LOCK: ONLY this logic sets the signal.
 //  EMA 50/200, RSI, Volume, Order-flow = confirmation display only.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const EMA_FAST = 10; // EMA applied to hlc3
-const EMA_SLOW = 20; // EMA applied to hlc3
-const STD_LEN = 10; // StdDev window for hlc3
-const SMOOTH_LEN = 14; // EMA of vol (smoothVol)
-const SENSITIVITY = 2.0; // band multiplier
+const EMA_FAST = 10;
+const EMA_SLOW = 20;
+const STD_LEN = 10;
+const SMOOTH_LEN = 14;
+const SENSITIVITY = 2.0;
 
-// Minimum candles needed before the engine produces anything meaningful
 const MIN_CANDLES = Math.max(EMA_SLOW, STD_LEN) + SMOOTH_LEN + 10;
 
 export interface SFISignal {
@@ -35,9 +41,9 @@ export interface SFISignal {
   signal: "BUY" | "SELL" | "WAIT";
   sfiColor: "GREEN" | "RED" | "NEUTRAL";
   isSideways: boolean;
-  entry: number;
-  stopLoss: number;
-  target: number;
+  entry: number; // locked at flip candle
+  stopLoss: number; // locked at band level of flip candle
+  target: number; // locked at 1:3 RR from entry
   ema50: number;
   ema200: number;
   support: number;
@@ -55,14 +61,11 @@ function emaFromValues(values: number[], period: number): number[] {
   if (values.length === 0) return [];
   const result: number[] = new Array(values.length).fill(Number.NaN);
   const k = 2 / (period + 1);
-
-  // Seed from the first `period` values
   const seedEnd = Math.min(period, values.length);
   let sum = 0;
   for (let i = 0; i < seedEnd; i++) sum += values[i];
   let ema = sum / seedEnd;
   result[seedEnd - 1] = ema;
-
   for (let i = seedEnd; i < values.length; i++) {
     ema = values[i] * k + ema * (1 - k);
     result[i] = ema;
@@ -70,16 +73,12 @@ function emaFromValues(values: number[], period: number): number[] {
   return result;
 }
 
-// ── EMA on candle closes (legacy helper) ─────────────────────────────────────
-
 export function calcEMA(candles: Candle[], period: number): number[] {
   return emaFromValues(
     candles.map((c) => c.close),
     period,
   );
 }
-
-// ── RSI (close-based) ────────────────────────────────────────────────────────
 
 export function calcRSI(candles: Candle[], period = 14): number {
   if (candles.length < period + 1) return 50;
@@ -96,8 +95,6 @@ export function calcRSI(candles: Candle[], period = 14): number {
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
-// ── ATR ───────────────────────────────────────────────────────────────────────
-
 export function calcATR(candles: Candle[], period = 14): number {
   if (candles.length < 2) return 0;
   const trs: number[] = [];
@@ -110,8 +107,6 @@ export function calcATR(candles: Candle[], period = 14): number {
   const slice = trs.slice(-period);
   return slice.reduce((s, v) => s + v, 0) / slice.length;
 }
-
-// ── Support / Resistance ──────────────────────────────────────────────────────
 
 export function calcSupportResistance(candles: Candle[]): {
   support: number;
@@ -144,7 +139,7 @@ export function calcSupportResistance(candles: Candle[]): {
   return { support, resistance };
 }
 
-// ── Core SFI signal generator (exact Pine Script logic) ───────────────────────
+// ── Core SFI signal generator (State-Based Trailing Stop) ─────────────────────
 
 function generateSignal(
   candles: Candle[],
@@ -173,22 +168,16 @@ function generateSignal(
 
   if (candles.length < MIN_CANDLES) return nullSignal;
 
-  // Prefer closed candles for no-repaint stability; fall back to all if too few
   const closed = candles.filter((c) => c.isClosed);
   const wc = closed.length >= MIN_CANDLES ? closed : candles;
   if (wc.length < MIN_CANDLES) return nullSignal;
 
-  // ── Step 1: Compute hlc3 series ──────────────────────────────────────────
+  // ── Step 1–6: Compute bands ──────────────────────────────────────────────
   const hlc3: number[] = wc.map((c) => (c.high + c.low + c.close) / 3);
-
-  // ── Step 2: EMA(hlc3, 10) and EMA(hlc3, 20) ─────────────────────────────
-  const ema10arr = emaFromValues(hlc3, EMA_FAST); // length = wc.length
+  const ema10arr = emaFromValues(hlc3, EMA_FAST);
   const ema20arr = emaFromValues(hlc3, EMA_SLOW);
-
-  // ── Step 3: Basis series ─────────────────────────────────────────────────
   const basisArr: number[] = ema10arr.map((v, i) => (v + ema20arr[i]) / 2);
 
-  // ── Step 4: vol = StdDev(hlc3, STD_LEN) — population std-dev ────────────
   const volArr: number[] = hlc3.map((_, i) => {
     if (i < STD_LEN - 1) return Number.NaN;
     const slice = hlc3.slice(i - STD_LEN + 1, i + 1);
@@ -197,17 +186,14 @@ function generateSignal(
     return Math.sqrt(variance);
   });
 
-  // ── Step 5: smoothVol = EMA(vol, SMOOTH_LEN) — NaN-safe ──────────────────
-  const validVolStart = STD_LEN - 1; // first non-NaN index in volArr
-  const volValid = volArr.slice(validVolStart); // only real values
+  const validVolStart = STD_LEN - 1;
+  const volValid = volArr.slice(validVolStart);
   const smoothVolValid = emaFromValues(volValid, SMOOTH_LEN);
-  // Re-map back to full-length array (NaN for early indices)
   const smoothVolArr: number[] = new Array(wc.length).fill(Number.NaN);
   for (let i = 0; i < smoothVolValid.length; i++) {
     smoothVolArr[validVolStart + i] = smoothVolValid[i];
   }
 
-  // ── Step 6: Band arrays ───────────────────────────────────────────────────
   const upperArr: number[] = basisArr.map((b, i) =>
     Number.isNaN(smoothVolArr[i])
       ? Number.NaN
@@ -219,15 +205,23 @@ function generateSignal(
       : b - SENSITIVITY * smoothVolArr[i],
   );
 
-  // ── Step 7: Trend State Machine ───────────────────────────────────────────
-  // Walk through ALL candles to reproduce exact Pine Script state history.
-  // "No simple crossings" — state only switches on close vs band boundary.
+  // ── Step 7: State-Based Trend State Machine ───────────────────────────────
+  // RULE:
+  //   - BUY   ONLY when candle closes ABOVE UpperBand
+  //   - SELL  ONLY when candle closes BELOW LowerBand
+  //   - State is LOCKED — never resets to WAIT once established
+  //   - Entry/SL locked at the FLIP candle, not current close
+
   type TState = "BULLISH" | "BEARISH" | "NEUTRAL";
   let trendState: TState = "NEUTRAL";
   let lastSignal: "BUY" | "SELL" | "WAIT" = "WAIT";
 
-  // First valid index (all arrays have real values)
-  const firstValid = validVolStart + SMOOTH_LEN - 1; // ~ STD_LEN + SMOOTH_LEN - 2
+  // Locked values — set once at the flip candle and held until next flip
+  let lockedEntry = 0;
+  let lockedSL = 0;
+  let lockedTarget = 0;
+
+  const firstValid = validVolStart + SMOOTH_LEN - 1;
 
   for (let i = firstValid; i < wc.length; i++) {
     const close = wc[i].close;
@@ -236,38 +230,55 @@ function generateSignal(
     if (Number.isNaN(upper) || Number.isNaN(lower)) continue;
 
     if (trendState === "NEUTRAL") {
-      // Bootstrap state from first break
+      // Bootstrap: first confirmed close outside a band establishes state
       if (close > upper) {
         trendState = "BULLISH";
         lastSignal = "BUY";
+        lockedEntry = close;
+        lockedSL = lower; // SL = Lower Band for BUY
+        lockedTarget = close + 3 * (close - lower); // 1:3 RR above entry
       } else if (close < lower) {
         trendState = "BEARISH";
         lastSignal = "SELL";
+        lockedEntry = close;
+        lockedSL = upper; // SL = Upper Band for SELL
+        lockedTarget = close - 3 * (upper - close); // 1:3 RR below entry
       }
     } else if (trendState === "BULLISH") {
+      // SELL only when close breaks BELOW LowerBand — bounces keep BUY state
       if (close < lower) {
         trendState = "BEARISH";
         lastSignal = "SELL";
+        lockedEntry = close;
+        lockedSL = upper; // SL = Upper Band at flip
+        lockedTarget = close - 3 * (upper - close);
       }
-      // else hold BULLISH / BUY
+      // else: hold BULLISH/BUY — no WAIT reset
     } else if (trendState === "BEARISH") {
+      // BUY only when close breaks ABOVE UpperBand — bounces keep SELL state
       if (close > upper) {
         trendState = "BULLISH";
         lastSignal = "BUY";
+        lockedEntry = close;
+        lockedSL = lower; // SL = Lower Band at flip
+        lockedTarget = close + 3 * (close - lower);
       }
-      // else hold BEARISH / SELL
+      // else: hold BEARISH/SELL — no WAIT reset
     }
   }
 
   // ── Final values (last candle) ────────────────────────────────────────────
   const last = wc.length - 1;
-  const entry = wc[last].close;
   const basis = basisArr[last];
   const upper = upperArr[last];
   const lower = lowerArr[last];
+  const currentClose = wc[last].close;
 
   if (Number.isNaN(upper) || Number.isNaN(lower) || upper === 0)
     return nullSignal;
+
+  // If no state was established, WAIT
+  if (trendState === "NEUTRAL") return nullSignal;
 
   // ── Confirmation data (display only) ─────────────────────────────────────
   const ema50Arr = calcEMA(wc, 50);
@@ -275,25 +286,24 @@ function generateSignal(
   const ema50 = ema50Arr[last] ?? 0;
   const ema200 = ema200Arr[last] ?? 0;
   const rsi = calcRSI(wc);
-  const atr = calcATR(wc);
   const { support, resistance } = calcSupportResistance(wc);
 
-  // Sideways check (confirmation only, does NOT override signal)
+  // Sideways is now purely informational — does NOT override signal
   const isSidewaysMarket =
     Math.abs(ema50 - ema200) / (ema200 || 1) < 0.003 && rsi > 44 && rsi < 56;
 
   // ── Debug console ────────────────────────────────────────────────────────
   console.log(
     `[SFI ${asset} ${timeframe}]`,
-    `close=${entry.toFixed(4)}`,
+    `close=${currentClose.toFixed(4)}`,
     `upper=${upper.toFixed(4)} lower=${lower.toFixed(4)}`,
     `basis=${basis.toFixed(4)}`,
     `rsi=${rsi.toFixed(1)}`,
     `state=${trendState} => ${lastSignal}`,
+    `lockedEntry=${lockedEntry.toFixed(4)} lockedSL=${lockedSL.toFixed(4)}`,
   );
 
-  // ── Build result ──────────────────────────────────────────────────────────
-  const baseResult: SFISignal = {
+  return {
     asset,
     timeframe,
     signal: lastSignal,
@@ -303,20 +313,10 @@ function generateSignal(
         : lastSignal === "SELL"
           ? "RED"
           : "NEUTRAL",
-    isSideways: lastSignal === "WAIT" ? isSidewaysMarket : false,
-    entry,
-    stopLoss:
-      lastSignal === "BUY"
-        ? entry - atr
-        : lastSignal === "SELL"
-          ? entry + atr
-          : entry,
-    target:
-      lastSignal === "BUY"
-        ? entry + 3 * atr
-        : lastSignal === "SELL"
-          ? entry - 3 * atr
-          : entry,
+    isSideways: isSidewaysMarket, // informational only — does not change signal
+    entry: lockedEntry,
+    stopLoss: lockedSL,
+    target: lockedTarget,
     ema50,
     ema200,
     support,
@@ -327,8 +327,6 @@ function generateSignal(
     lowerBand: lower,
     timestamp: Date.now(),
   };
-
-  return baseResult;
 }
 
 // ── Confirmation accessor (DISPLAY ONLY) ──────────────────────────────────────
