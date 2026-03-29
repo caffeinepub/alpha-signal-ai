@@ -21,6 +21,13 @@ function formatPrice(asset: string, value: number): string {
   });
 }
 
+function formatSlDistance(asset: string, dist: number): string {
+  if (asset === "BTC") return "200 Points ($200)";
+  if (asset === "XAU/USD") return "30 Pips ($3.00)";
+  if (asset === "EUR/USD") return "30 Pips (0.0030)";
+  return `${dist}`;
+}
+
 const ASSET_ICON: Record<string, string> = {
   BTC: "₿",
   "XAU/USD": "🥇",
@@ -78,7 +85,7 @@ function SignalBadge({ signal }: { signal: "BUY" | "SELL" | "WAIT" }) {
   );
 }
 
-// ── Gemini Institutional Bias Panel ──────────────────────────────────────────
+// ── Gemini Institutional Bias Panel ────────────────────────────────────────────
 
 function GeminiConfirmationPanel({ signal }: { signal: SFISignal }) {
   const { data, loading } = useGeminiConfirmation(signal);
@@ -165,7 +172,7 @@ function GeminiConfirmationPanel({ signal }: { signal: SFISignal }) {
   );
 }
 
-// ── EMA + Liquidity confirmation (local, display only) ───────────────────────
+// ── EMA + Liquidity confirmation (local, display only) ──────────────────────
 
 function LocalConfirmationPanel({ signal }: { signal: SFISignal }) {
   const conf = getConfirmationData(signal);
@@ -206,7 +213,7 @@ function LocalConfirmationPanel({ signal }: { signal: SFISignal }) {
   );
 }
 
-// ── Timeframe Panel ───────────────────────────────────────────────────────────
+// ── Timeframe Panel ───────────────────────────────────────────────────────
 
 function TimeframePanel({
   label,
@@ -222,8 +229,6 @@ function TimeframePanel({
   const isSideways = signal?.isSideways ?? false;
   const hasData = signal && signal.entry > 0;
 
-  // Visual: box stays RED for SELL, GREEN for BUY — never resets to grey
-  // unless signal is genuinely WAIT (NEUTRAL state, pre-bootstrap)
   const borderClass =
     sig === "BUY"
       ? "border-emerald-500/40 bg-emerald-900/15 shadow-[0_0_12px_rgba(52,211,153,0.08)]"
@@ -268,7 +273,7 @@ function TimeframePanel({
             </div>
           </div>
 
-          {/* ── LOCKED ENTRY / SL / TARGET ── */}
+          {/* ── LOCKED LEVELS ── */}
           <div className="space-y-0.5 text-[11px] font-mono">
             <p className="text-[9px] uppercase tracking-widest text-zinc-600 font-bold">
               Locked Levels
@@ -280,19 +285,33 @@ function TimeframePanel({
               </span>
             </div>
             <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">
-                SL ({sig === "SELL" ? "Upper Band" : "Lower Band"})
-              </span>
+              <span className="text-zinc-500">SL (Fixed)</span>
               <span className="text-red-400">
                 {formatPrice(asset, signal.stopLoss)}
               </span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">Target (1:3 RR)</span>
-              <span className="text-emerald-400">
-                {formatPrice(asset, signal.target)}
+            <div className="flex justify-between gap-2 text-[9px]">
+              <span className="text-zinc-600">SL Distance</span>
+              <span className="text-red-400/70">
+                {formatSlDistance(asset, signal.slDistance)}
               </span>
             </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-zinc-500">Exit / Target</span>
+              <span className="text-cyan-400 font-bold">🔄 Trend Flip</span>
+            </div>
+          </div>
+
+          {/* Trend Flip explanation */}
+          <div className="bg-cyan-900/10 border border-cyan-500/15 rounded-lg px-2 py-1.5">
+            <p className="text-[9px] text-cyan-400/70 leading-tight">
+              ⚡ Trade stays active until SFI signal flips from{" "}
+              {sig === "BUY"
+                ? "BUY → SELL"
+                : sig === "SELL"
+                  ? "SELL → BUY"
+                  : "current state"}
+            </p>
           </div>
 
           {/* ── GEMINI INSTITUTIONAL BIAS (confirmation only) ── */}
@@ -306,7 +325,7 @@ function TimeframePanel({
   );
 }
 
-// ── Card Root ─────────────────────────────────────────────────────────────────
+// ── Card Root ───────────────────────────────────────────────────────────────────
 
 export function SFISignalCard({
   asset,
@@ -317,7 +336,6 @@ export function SFISignalCard({
   const icon = ASSET_ICON[asset] ?? "◎";
   const label = ASSET_LABEL[asset] ?? asset;
 
-  // Determine overall card accent based on dominant signal
   const dominant = signal3m?.signal ?? signal15m?.signal ?? "WAIT";
   const cardBorder =
     dominant === "BUY"
@@ -359,13 +377,20 @@ export function SFISignalCard({
       {/* Badges */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-900/30 border border-cyan-500/20 text-cyan-400 uppercase tracking-wider">
-          Risk:Reward 1:3
+          Exit: Trend Flip
+        </span>
+        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-900/30 border border-red-500/20 text-red-400 uppercase tracking-wider">
+          {asset === "BTC"
+            ? "SL: 200 Points"
+            : asset === "XAU/USD"
+              ? "SL: 30 Pips"
+              : "SL: 30 Pips"}
         </span>
         <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-500/20 text-emerald-400 uppercase tracking-wider">
           🔒 SFI State-Lock
         </span>
         <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-900/30 border border-purple-500/20 text-purple-400 uppercase tracking-wider">
-          ✦ Gemini Confirmed
+          ❖ Gemini Confirmed
         </span>
       </div>
 

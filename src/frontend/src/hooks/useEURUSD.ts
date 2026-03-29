@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Candle } from "./useBinanceKlines";
 
 // ─── EUR/USD Hook ─────────────────────────────────────────────────────────────
-// Polls the Frankfurter API every 30 seconds and builds synthetic candles
-// for 3m and 15m timeframes. Each poll tick = one synthetic candle.
+// Uses Binance EURUSDT klines REST API for proper OHLC data.
+// Fetches 200-candle history on mount and refreshes every 15 seconds.
 
 export interface EURUSDState {
   price: number;
@@ -12,22 +12,21 @@ export interface EURUSDState {
   isConnected: boolean;
 }
 
-const API_URL = "https://api.frankfurter.app/latest?from=EUR&to=USD";
-const POLL_INTERVAL = 30_000;
 const MAX_CANDLES = 200;
-const NOISE = 0.0002;
+const POLL_INTERVAL = 15_000;
 
-function makeSyntheticCandle(price: number, time: number): Candle {
-  const half = NOISE;
-  return {
-    time,
-    open: price - half * (Math.random() - 0.5),
-    high: price + half * Math.random(),
-    low: price - half * Math.random(),
-    close: price,
-    volume: 1,
+type KlineRow = [number, string, string, string, string, string, ...unknown[]];
+
+function parseKlines(rows: KlineRow[]): Candle[] {
+  return rows.map((r) => ({
+    time: r[0],
+    open: Number.parseFloat(r[1]),
+    high: Number.parseFloat(r[2]),
+    low: Number.parseFloat(r[3]),
+    close: Number.parseFloat(r[4]),
+    volume: Number.parseFloat(r[5]),
     isClosed: true,
-  };
+  }));
 }
 
 export function useEURUSD(): EURUSDState {
@@ -36,61 +35,58 @@ export function useEURUSD(): EURUSDState {
   const [candles15m, setCandles15m] = useState<Candle[]>([]);
   const [isConnected, setIsConnected] = useState(false);
 
-  const priceRef = useRef(0);
-  const tickCountRef = useRef(0);
   const unmountedRef = useRef(false);
 
-  const addCandle = useCallback((p: number) => {
-    const now = Date.now();
-    const candle = makeSyntheticCandle(p, now);
-    tickCountRef.current += 1;
+  const fetchData = useCallback(async () => {
+    if (unmountedRef.current) return;
+    try {
+      const [res3m, res15m] = await Promise.all([
+        fetch(
+          `https://api.binance.com/api/v3/klines?symbol=EURUSDT&interval=3m&limit=${MAX_CANDLES}`,
+        ),
+        fetch(
+          `https://api.binance.com/api/v3/klines?symbol=EURUSDT&interval=15m&limit=${MAX_CANDLES}`,
+        ),
+      ]);
 
-    setCandles3m((prev) => {
-      const next = [...prev, candle];
-      if (next.length > MAX_CANDLES) next.shift();
-      return next;
-    });
+      if (!res3m.ok || !res15m.ok)
+        throw new Error("Binance EURUSDT fetch error");
 
-    if (tickCountRef.current % 5 === 0) {
-      setCandles15m((prev) => {
-        const next = [...prev, candle];
-        if (next.length > MAX_CANDLES) next.shift();
-        return next;
-      });
+      const [rows3m, rows15m] = (await Promise.all([
+        res3m.json(),
+        res15m.json(),
+      ])) as [KlineRow[], KlineRow[]];
+
+      if (unmountedRef.current) return;
+
+      const c3m = parseKlines(rows3m);
+      const c15m = parseKlines(rows15m);
+
+      setCandles3m(c3m);
+      setCandles15m(c15m);
+
+      const lastClose = c3m[c3m.length - 1]?.close ?? 0;
+      if (lastClose > 0) {
+        setPrice(lastClose);
+        setIsConnected(true);
+      }
+    } catch (err) {
+      console.warn("[EUR/USD] Binance EURUSDT fetch failed:", err);
     }
   }, []);
 
-  const fetchPrice = useCallback(async () => {
-    try {
-      const res = await fetch(API_URL);
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-      const p = data?.rates?.USD as number;
-      if (p && p > 0) {
-        priceRef.current = p;
-        setPrice(p);
-        setIsConnected(true);
-        addCandle(p);
-      }
-    } catch {
-      if (priceRef.current > 0) {
-        addCandle(priceRef.current);
-      }
-    }
-  }, [addCandle]);
-
   useEffect(() => {
     unmountedRef.current = false;
-    fetchPrice();
+    fetchData();
     const id = setInterval(() => {
-      if (!unmountedRef.current) fetchPrice();
+      if (!unmountedRef.current) fetchData();
     }, POLL_INTERVAL);
 
     return () => {
       unmountedRef.current = true;
       clearInterval(id);
     };
-  }, [fetchPrice]);
+  }, [fetchData]);
 
   return { price, candles3m, candles15m, isConnected };
 }

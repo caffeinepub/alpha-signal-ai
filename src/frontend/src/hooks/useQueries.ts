@@ -115,20 +115,86 @@ export function useMarketSentiment() {
     enabled: false,
   });
 }
+
+// ── Binance 24h Ticker — Top Gainers & Losers ──────────────────────────────
+// Uses Binance GET /api/v3/ticker/24hr to fetch all USDT pairs,
+// then sorts by change % to get top gainers and top losers.
+
+interface BinanceTicker {
+  symbol: string;
+  priceChangePercent: string;
+  lastPrice: string;
+  quoteVolume: string;
+}
+
+async function fetchBinanceMovers(): Promise<{
+  gainers: Gainer[];
+  losers: Gainer[];
+}> {
+  const res = await fetch("https://api.binance.com/api/v3/ticker/24hr", {
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`Binance ticker failed: ${res.status}`);
+  const data: BinanceTicker[] = await res.json();
+
+  // Filter USDT pairs only, exclude stablecoins, min volume filter
+  const filtered = data.filter((t) => {
+    if (!t.symbol.endsWith("USDT")) return false;
+    const vol = Number.parseFloat(t.quoteVolume);
+    if (vol < 1_000_000) return false; // min $1M 24h volume
+    const sym = t.symbol.replace("USDT", "");
+    // Exclude stablecoins
+    const stables = ["USDC", "BUSD", "TUSD", "FDUSD", "DAI", "USDP", "SUSD"];
+    if (stables.includes(sym)) return false;
+    return true;
+  });
+
+  const toGainer = (t: BinanceTicker): Gainer => ({
+    symbol: t.symbol.replace("USDT", ""),
+    name: t.symbol.replace("USDT", "/USDT"),
+    change: Number.parseFloat(t.priceChangePercent),
+    price: Number.parseFloat(t.lastPrice),
+    changePercent: Number.parseFloat(t.priceChangePercent),
+  });
+
+  const sorted = [...filtered].sort(
+    (a, b) =>
+      Number.parseFloat(b.priceChangePercent) -
+      Number.parseFloat(a.priceChangePercent),
+  );
+
+  const gainers = sorted.slice(0, 10).map(toGainer);
+  const losers = sorted.slice(-10).reverse().map(toGainer);
+
+  return { gainers, losers };
+}
+
 export function useTopGainers() {
   return useQuery<Gainer[]>({
     queryKey: ["topGainers"],
-    queryFn: async () => [],
-    enabled: false,
+    queryFn: async () => {
+      const { gainers } = await fetchBinanceMovers();
+      return gainers;
+    },
+    staleTime: 60_000, // cache for 60 seconds
+    refetchInterval: 60_000, // refresh every 60 seconds
+    retry: 2,
   });
 }
+
 export function useTopLosers() {
   return useQuery<Gainer[]>({
     queryKey: ["topLosers"],
-    queryFn: async () => [],
-    enabled: false,
+    queryFn: async () => {
+      const { losers } = await fetchBinanceMovers();
+      return losers;
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    retry: 2,
   });
 }
+
 export function usePerformanceStats() {
   return useQuery<PerformanceStats | null>({
     queryKey: ["performanceStats"],

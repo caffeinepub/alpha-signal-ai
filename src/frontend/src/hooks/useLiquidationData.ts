@@ -1,37 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 // Types
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 
 export interface LiquidationState {
   longLiquidations: number; // USD value of long liquidations (last 1 hour)
   shortLiquidations: number; // USD value of short liquidations (last 1 hour)
   liquidationBias: "BULLISH" | "BEARISH" | "NEUTRAL";
-  // BULLISH = short liqs > long liqs * 1.5 (shorts being liquidated → price going up)
-  // BEARISH = long liqs > short liqs * 1.5
   lastUpdated: Date | null;
   isConnected: boolean;
+  statusMessage: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 // Liquidation event storage
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 
 interface LiqEvent {
-  time: number; // Date.now()
+  time: number;
   usdValue: number;
   type: "long" | "short";
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
-const WS_URL = "wss://fstream.binance.com/stream?streams=btcusdt@forceOrder";
+// Use the combined stream endpoint — subscribe after connect
+const WS_URL = "wss://fstream.binance.com/ws";
+const STREAM_NAME = "btcusdt@forceOrder";
 const MAX_RECONNECT_DELAY = 30000;
-const BASE_RECONNECT_DELAY = 1000;
+const BASE_RECONNECT_DELAY = 2000;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 // Hook
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────
 
 export function useLiquidationData(): LiquidationState {
   const [state, setState] = useState<LiquidationState>({
@@ -40,6 +41,7 @@ export function useLiquidationData(): LiquidationState {
     liquidationBias: "NEUTRAL",
     lastUpdated: null,
     isConnected: false,
+    statusMessage: "Connecting to liquidation feed…",
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -48,43 +50,45 @@ export function useLiquidationData(): LiquidationState {
   const unmountedRef = useRef(false);
   const eventsRef = useRef<LiqEvent[]>([]);
 
-  const computeState = useCallback((connected: boolean): LiquidationState => {
-    const now = Date.now();
-    // Prune events older than 1 hour
-    eventsRef.current = eventsRef.current.filter(
-      (e) => now - e.time < ONE_HOUR_MS,
-    );
+  const computeState = useCallback(
+    (connected: boolean, statusMessage: string): LiquidationState => {
+      const now = Date.now();
+      eventsRef.current = eventsRef.current.filter(
+        (e) => now - e.time < ONE_HOUR_MS,
+      );
 
-    const longLiquidations = eventsRef.current
-      .filter((e) => e.type === "long")
-      .reduce((sum, e) => sum + e.usdValue, 0);
+      const longLiquidations = eventsRef.current
+        .filter((e) => e.type === "long")
+        .reduce((sum, e) => sum + e.usdValue, 0);
 
-    const shortLiquidations = eventsRef.current
-      .filter((e) => e.type === "short")
-      .reduce((sum, e) => sum + e.usdValue, 0);
+      const shortLiquidations = eventsRef.current
+        .filter((e) => e.type === "short")
+        .reduce((sum, e) => sum + e.usdValue, 0);
 
-    let liquidationBias: LiquidationState["liquidationBias"];
-    if (shortLiquidations > longLiquidations * 1.5) {
-      liquidationBias = "BULLISH"; // Shorts being wiped out → bullish
-    } else if (longLiquidations > shortLiquidations * 1.5) {
-      liquidationBias = "BEARISH"; // Longs being wiped out → bearish
-    } else {
-      liquidationBias = "NEUTRAL";
-    }
+      let liquidationBias: LiquidationState["liquidationBias"];
+      if (shortLiquidations > longLiquidations * 1.5) {
+        liquidationBias = "BULLISH";
+      } else if (longLiquidations > shortLiquidations * 1.5) {
+        liquidationBias = "BEARISH";
+      } else {
+        liquidationBias = "NEUTRAL";
+      }
 
-    return {
-      longLiquidations,
-      shortLiquidations,
-      liquidationBias,
-      lastUpdated: eventsRef.current.length > 0 ? new Date() : null,
-      isConnected: connected,
-    };
-  }, []);
+      return {
+        longLiquidations,
+        shortLiquidations,
+        liquidationBias,
+        lastUpdated: eventsRef.current.length > 0 ? new Date() : null,
+        isConnected: connected,
+        statusMessage,
+      };
+    },
+    [],
+  );
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
 
-    // Clean up existing socket
     if (wsRef.current) {
       wsRef.current.onopen = null;
       wsRef.current.onmessage = null;
@@ -94,6 +98,11 @@ export function useLiquidationData(): LiquidationState {
       wsRef.current = null;
     }
 
+    setState((prev) => ({
+      ...prev,
+      statusMessage: `Connecting… (attempt ${reconnectAttemptsRef.current + 1})`,
+    }));
+
     try {
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
@@ -101,28 +110,41 @@ export function useLiquidationData(): LiquidationState {
       ws.onopen = () => {
         if (unmountedRef.current) return;
         reconnectAttemptsRef.current = 0;
-        setState((prev) => ({ ...prev, isConnected: true }));
+        // Subscribe to the forceOrder stream after connection
+        const subscribeMsg = JSON.stringify({
+          method: "SUBSCRIBE",
+          params: [STREAM_NAME],
+          id: 1,
+        });
+        ws.send(subscribeMsg);
+        console.log(
+          "[Liquidation] WebSocket connected, subscribed to",
+          STREAM_NAME,
+        );
+        setState((prev) => ({
+          ...prev,
+          isConnected: true,
+          statusMessage: "Connected — monitoring BTC liquidations",
+        }));
       };
 
       ws.onmessage = (event: MessageEvent) => {
         if (unmountedRef.current) return;
         try {
-          const msg = JSON.parse(event.data as string) as {
-            data: {
-              o: {
-                S: "BUY" | "SELL";
-                q: string;
-                p: string;
-                z: string;
-              };
-            };
-          };
+          const msg = JSON.parse(event.data as string) as Record<
+            string,
+            unknown
+          >;
 
-          const o = msg?.data?.o;
+          // Ignore subscription confirmation messages
+          if (msg?.result !== undefined || msg?.id !== undefined) return;
+
+          // Handle stream wrapper format: { stream: ..., data: { ... } }
+          const rawOrder =
+            (msg?.data as Record<string, unknown> | undefined) ?? msg;
+          const o = rawOrder?.o as Record<string, string> | undefined;
           if (!o) return;
 
-          // BUY side = short position liquidated → short liquidation (bullish)
-          // SELL side = long position liquidated → long liquidation (bearish)
           const side = o.S;
           const filledQty = Number.parseFloat(o.z);
           const price = Number.parseFloat(o.p);
@@ -130,41 +152,55 @@ export function useLiquidationData(): LiquidationState {
 
           if (usdValue <= 0 || !Number.isFinite(usdValue)) return;
 
+          // BUY side = short position liquidated (bullish)
+          // SELL side = long position liquidated (bearish)
           const type: LiqEvent["type"] = side === "BUY" ? "short" : "long";
-          eventsRef.current.push({
-            time: Date.now(),
-            usdValue,
-            type,
-          });
+          eventsRef.current.push({ time: Date.now(), usdValue, type });
 
-          setState(computeState(true));
+          setState(
+            computeState(
+              true,
+              `Live — ${eventsRef.current.length} events (1h)`,
+            ),
+          );
         } catch {
           // Ignore malformed messages
         }
       };
 
-      ws.onerror = () => {
-        // onclose will handle reconnect
+      ws.onerror = (err) => {
+        console.error("[Liquidation] WebSocket error:", err);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (unmountedRef.current) return;
-        setState((prev) => ({ ...prev, isConnected: false }));
-
+        console.warn(
+          "[Liquidation] WebSocket closed:",
+          event.code,
+          event.reason,
+        );
         const attempts = reconnectAttemptsRef.current;
         const delay = Math.min(
           BASE_RECONNECT_DELAY * 2 ** attempts,
           MAX_RECONNECT_DELAY,
         );
         reconnectAttemptsRef.current = attempts + 1;
-
+        setState((prev) => ({
+          ...prev,
+          isConnected: false,
+          statusMessage: `Disconnected (code ${event.code}). Reconnecting in ${Math.round(delay / 1000)}s…`,
+        }));
         reconnectTimerRef.current = setTimeout(() => {
           if (!unmountedRef.current) connect();
         }, delay);
       };
-    } catch {
-      // WebSocket construction failed (e.g., in a restricted environment)
-      // Gracefully degrade — leave state as default (not connected)
+    } catch (err) {
+      console.error("[Liquidation] WebSocket construction failed:", err);
+      setState((prev) => ({
+        ...prev,
+        isConnected: false,
+        statusMessage: "WebSocket unavailable in this environment",
+      }));
     }
   }, [computeState]);
 
@@ -172,17 +208,22 @@ export function useLiquidationData(): LiquidationState {
     unmountedRef.current = false;
     connect();
 
-    // Periodic cleanup of old events (every 30 seconds)
     const cleanupInterval = setInterval(() => {
       if (!unmountedRef.current) {
-        setState(computeState(wsRef.current?.readyState === WebSocket.OPEN));
+        setState(
+          computeState(
+            wsRef.current?.readyState === WebSocket.OPEN,
+            wsRef.current?.readyState === WebSocket.OPEN
+              ? `Live — ${eventsRef.current.length} events (1h)`
+              : "Reconnecting…",
+          ),
+        );
       }
     }, 30_000);
 
     return () => {
       unmountedRef.current = true;
       clearInterval(cleanupInterval);
-
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;

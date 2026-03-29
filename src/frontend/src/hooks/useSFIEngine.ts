@@ -5,26 +5,26 @@ import type { Candle } from "./useBinanceKlines";
 //
 //  hlc3       = (high + low + close) / 3
 //  Basis      = (EMA(hlc3, 10) + EMA(hlc3, 20)) / 2
-//  vol        = StdDev(hlc3, 10)          ← population std-dev
+//  vol        = StdDev(hlc3, 10)
 //  smoothVol  = EMA(vol, 14)
 //  UpperBand  = Basis + (smoothVol × 2.0)
 //  LowerBand  = Basis − (smoothVol × 2.0)
 //
-//  TREND STATE MACHINE (State-Based Trailing Stop):
-//    - Start NEUTRAL. First confirmed break initialises state.
+//  TREND STATE MACHINE:
 //    - BUY  triggers ONLY when candle CLOSES ABOVE UpperBand.
 //    - SELL triggers ONLY when candle CLOSES BELOW LowerBand.
-//    - State is LOCKED — stays SELL even on bounces. Only the OPPOSITE
-//      band break can flip the state.
-//    - Signal NEVER resets to WAIT once state is established.
+//    - State LOCKED — stays SELL on bounces. Only opposite band break flips.
 //
-//  FIXED ENTRY & SL:
-//    - Entry  = close of the candle that triggered the flip.
-//    - SL     = UpperBand (for SELL) or LowerBand (for BUY) at the flip.
-//    - Target = Entry ± 3 × |SL − Entry|   (fixed 1:3 Risk/Reward).
+//  FIXED SL (v85):
+//    - BTC:     SL = Entry ± 200 USD (200 Points)
+//    - XAU/USD: SL = Entry ± 3 USD  (30 Pips @ $0.10/pip)
+//    - EUR/USD: SL = Entry ± 0.0030 (30 pips @ 0.0001/pip)
+//
+//  EXIT RULE (v85):
+//    - Target = "Trend Flip" — trade stays active until signal flips.
+//    - target field = 0 to indicate "Trend Flip" (no fixed TP).
 //
 //  STRICT LOCK: ONLY this logic sets the signal.
-//  EMA 50/200, RSI, Volume, Order-flow = confirmation display only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EMA_FAST = 10;
@@ -35,6 +35,13 @@ const SENSITIVITY = 2.0;
 
 const MIN_CANDLES = Math.max(EMA_SLOW, STD_LEN) + SMOOTH_LEN + 10;
 
+// Fixed SL distances per asset
+const FIXED_SL: Record<string, number> = {
+  BTC: 200, // 200 USD (200 points)
+  "XAU/USD": 3, // 30 pips × $0.10/pip = $3
+  "EUR/USD": 0.003, // 30 pips × 0.0001/pip
+};
+
 export interface SFISignal {
   asset: string;
   timeframe: "3m" | "15m";
@@ -42,8 +49,9 @@ export interface SFISignal {
   sfiColor: "GREEN" | "RED" | "NEUTRAL";
   isSideways: boolean;
   entry: number; // locked at flip candle
-  stopLoss: number; // locked at band level of flip candle
-  target: number; // locked at 1:3 RR from entry
+  stopLoss: number; // fixed SL: BTC=200pts, Gold=30pips, EURUSD=30pips
+  slDistance: number; // raw SL distance for display
+  target: number; // 0 = "Trend Flip" (exit when signal flips)
   ema50: number;
   ema200: number;
   support: number;
@@ -139,7 +147,7 @@ export function calcSupportResistance(candles: Candle[]): {
   return { support, resistance };
 }
 
-// ── Core SFI signal generator (State-Based Trailing Stop) ─────────────────────
+// ── Core SFI signal generator ─────────────────────────────────────────────────
 
 function generateSignal(
   candles: Candle[],
@@ -154,6 +162,7 @@ function generateSignal(
     isSideways: false,
     entry: 0,
     stopLoss: 0,
+    slDistance: 0,
     target: 0,
     ema50: 0,
     ema200: 0,
@@ -206,21 +215,14 @@ function generateSignal(
   );
 
   // ── Step 7: State-Based Trend State Machine ───────────────────────────────
-  // RULE:
-  //   - BUY   ONLY when candle closes ABOVE UpperBand
-  //   - SELL  ONLY when candle closes BELOW LowerBand
-  //   - State is LOCKED — never resets to WAIT once established
-  //   - Entry/SL locked at the FLIP candle, not current close
-
   type TState = "BULLISH" | "BEARISH" | "NEUTRAL";
   let trendState: TState = "NEUTRAL";
   let lastSignal: "BUY" | "SELL" | "WAIT" = "WAIT";
 
-  // Locked values — set once at the flip candle and held until next flip
   let lockedEntry = 0;
   let lockedSL = 0;
-  let lockedTarget = 0;
 
+  const fixedSlDist = FIXED_SL[asset] ?? 0;
   const firstValid = validVolStart + SMOOTH_LEN - 1;
 
   for (let i = firstValid; i < wc.length; i++) {
@@ -230,40 +232,33 @@ function generateSignal(
     if (Number.isNaN(upper) || Number.isNaN(lower)) continue;
 
     if (trendState === "NEUTRAL") {
-      // Bootstrap: first confirmed close outside a band establishes state
       if (close > upper) {
         trendState = "BULLISH";
         lastSignal = "BUY";
         lockedEntry = close;
-        lockedSL = lower; // SL = Lower Band for BUY
-        lockedTarget = close + 3 * (close - lower); // 1:3 RR above entry
+        // Fixed SL: entry - fixedSlDist
+        lockedSL = close - fixedSlDist;
       } else if (close < lower) {
         trendState = "BEARISH";
         lastSignal = "SELL";
         lockedEntry = close;
-        lockedSL = upper; // SL = Upper Band for SELL
-        lockedTarget = close - 3 * (upper - close); // 1:3 RR below entry
+        // Fixed SL: entry + fixedSlDist
+        lockedSL = close + fixedSlDist;
       }
     } else if (trendState === "BULLISH") {
-      // SELL only when close breaks BELOW LowerBand — bounces keep BUY state
       if (close < lower) {
         trendState = "BEARISH";
         lastSignal = "SELL";
         lockedEntry = close;
-        lockedSL = upper; // SL = Upper Band at flip
-        lockedTarget = close - 3 * (upper - close);
+        lockedSL = close + fixedSlDist;
       }
-      // else: hold BULLISH/BUY — no WAIT reset
     } else if (trendState === "BEARISH") {
-      // BUY only when close breaks ABOVE UpperBand — bounces keep SELL state
       if (close > upper) {
         trendState = "BULLISH";
         lastSignal = "BUY";
         lockedEntry = close;
-        lockedSL = lower; // SL = Lower Band at flip
-        lockedTarget = close + 3 * (close - lower);
+        lockedSL = close - fixedSlDist;
       }
-      // else: hold BEARISH/SELL — no WAIT reset
     }
   }
 
@@ -277,7 +272,6 @@ function generateSignal(
   if (Number.isNaN(upper) || Number.isNaN(lower) || upper === 0)
     return nullSignal;
 
-  // If no state was established, WAIT
   if (trendState === "NEUTRAL") return nullSignal;
 
   // ── Confirmation data (display only) ─────────────────────────────────────
@@ -288,11 +282,9 @@ function generateSignal(
   const rsi = calcRSI(wc);
   const { support, resistance } = calcSupportResistance(wc);
 
-  // Sideways is now purely informational — does NOT override signal
   const isSidewaysMarket =
     Math.abs(ema50 - ema200) / (ema200 || 1) < 0.003 && rsi > 44 && rsi < 56;
 
-  // ── Debug console ────────────────────────────────────────────────────────
   console.log(
     `[SFI ${asset} ${timeframe}]`,
     `close=${currentClose.toFixed(4)}`,
@@ -300,7 +292,7 @@ function generateSignal(
     `basis=${basis.toFixed(4)}`,
     `rsi=${rsi.toFixed(1)}`,
     `state=${trendState} => ${lastSignal}`,
-    `lockedEntry=${lockedEntry.toFixed(4)} lockedSL=${lockedSL.toFixed(4)}`,
+    `lockedEntry=${lockedEntry.toFixed(4)} lockedSL=${lockedSL.toFixed(4)} fixedSlDist=${fixedSlDist}`,
   );
 
   return {
@@ -313,10 +305,11 @@ function generateSignal(
         : lastSignal === "SELL"
           ? "RED"
           : "NEUTRAL",
-    isSideways: isSidewaysMarket, // informational only — does not change signal
+    isSideways: isSidewaysMarket,
     entry: lockedEntry,
     stopLoss: lockedSL,
-    target: lockedTarget,
+    slDistance: fixedSlDist,
+    target: 0, // 0 = "Trend Flip" — no fixed TP, exit on signal flip
     ema50,
     ema200,
     support,

@@ -3,7 +3,30 @@ import { Bot, Cpu, Loader2, RefreshCw, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { GeminiResult, GeminiSignal } from "../hooks/useRealGeminiEngine";
 
-// ─── Color Helpers ────────────────────────────────────────────────────────────
+function isErrorText(text: string): boolean {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  return (
+    t.includes("retrying") ||
+    t.includes("api error") ||
+    t.includes("could not be parsed") ||
+    t.includes("no candidates") ||
+    t.includes("quota") ||
+    t.includes("temporarily unavailable") ||
+    t.startsWith("❌") ||
+    t.startsWith("⚠️")
+  );
+}
+
+function displayText(result: GeminiResult): {
+  text: string;
+  isRetrying: boolean;
+} {
+  const raw = result.rawText || result.analysisText || "";
+  if (isErrorText(raw))
+    return { text: "AI connection retrying...", isRetrying: true };
+  return { text: raw, isRetrying: false };
+}
 
 function signalColors(signal: GeminiSignal) {
   switch (signal) {
@@ -50,28 +73,22 @@ function signalColors(signal: GeminiSignal) {
   }
 }
 
-// ─── Asset Analysis Card ─────────────────────────────────────────────────────
-
 function AssetGeminiCard({
   asset,
   result,
-}: {
-  asset: string;
-  result: GeminiResult;
-}) {
+}: { asset: string; result: GeminiResult }) {
   const colors = signalColors(result.signal);
+  const { text, isRetrying } = displayText(result);
 
   return (
     <div
       className={`rounded-xl border ${colors.border} ${colors.bg} p-4 relative overflow-hidden`}
     >
-      {/* Subtle glow overlay */}
       <div
         className={`absolute inset-0 opacity-5 pointer-events-none ${colors.bar} blur-2xl`}
         style={{ borderRadius: "inherit" }}
       />
 
-      {/* Header row */}
       <div className="flex items-center justify-between mb-3 relative z-10">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
@@ -90,7 +107,6 @@ function AssetGeminiCard({
         </span>
       </div>
 
-      {/* Thinking / Analysis state */}
       <div className="relative z-10 min-h-[52px]">
         <AnimatePresence mode="wait">
           {result.isThinking ? (
@@ -107,6 +123,20 @@ function AssetGeminiCard({
                 Generating Insight via Gemini 1.5 Pro...
               </span>
             </motion.div>
+          ) : isRetrying ? (
+            <motion.div
+              key="retrying"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.25 }}
+              className="flex items-center gap-2 py-2"
+            >
+              <Loader2 className="w-3.5 h-3.5 text-hold animate-spin shrink-0" />
+              <span className="text-[11px] text-muted-foreground italic">
+                AI connection retrying...
+              </span>
+            </motion.div>
           ) : (
             <motion.div
               key="result"
@@ -118,14 +148,13 @@ function AssetGeminiCard({
               <p
                 className={`text-[11px] leading-relaxed mb-2 whitespace-pre-wrap ${colors.text}`}
               >
-                {result.rawText || result.analysisText}
+                {text}
               </p>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Institutional Probability bar */}
       <div className="relative z-10 mt-1">
         <div className="flex justify-between text-[10px] mb-1">
           <span className="text-muted-foreground flex items-center gap-1">
@@ -146,7 +175,6 @@ function AssetGeminiCard({
         </div>
       </div>
 
-      {/* Technical stats row */}
       <div className="relative z-10 grid grid-cols-4 gap-1 mt-3 pt-2 border-t border-border/30">
         {(
           [
@@ -155,18 +183,14 @@ function AssetGeminiCard({
               label: "EMA50",
               value:
                 result.ema50 > 0
-                  ? `$${(result.ema50 / (result.ema50 >= 1000 ? 1000 : 1)).toFixed(result.ema50 >= 1000 ? 1 : 2)}${
-                      result.ema50 >= 1000 ? "K" : ""
-                    }`
+                  ? `$${(result.ema50 / (result.ema50 >= 1000 ? 1000 : 1)).toFixed(result.ema50 >= 1000 ? 1 : 2)}${result.ema50 >= 1000 ? "K" : ""}`
                   : "—",
             },
             {
               label: "EMA200",
               value:
                 result.ema200 > 0
-                  ? `$${(result.ema200 / (result.ema200 >= 1000 ? 1000 : 1)).toFixed(result.ema200 >= 1000 ? 1 : 2)}${
-                      result.ema200 >= 1000 ? "K" : ""
-                    }`
+                  ? `$${(result.ema200 / (result.ema200 >= 1000 ? 1000 : 1)).toFixed(result.ema200 >= 1000 ? 1 : 2)}${result.ema200 >= 1000 ? "K" : ""}`
                   : "—",
             },
             {
@@ -189,7 +213,6 @@ function AssetGeminiCard({
         ))}
       </div>
 
-      {/* SMC flags */}
       {(result.nearHigh || result.nearLow) && (
         <div className="relative z-10 flex gap-1.5 mt-2">
           {result.nearHigh && (
@@ -208,8 +231,6 @@ function AssetGeminiCard({
   );
 }
 
-// ─── Main Panel ───────────────────────────────────────────────────────────────
-
 export function GeminiAnalysisPanel({
   btc,
   xau,
@@ -223,7 +244,6 @@ export function GeminiAnalysisPanel({
 }) {
   return (
     <div className="trading-card p-4" data-ocid="gemini.panel">
-      {/* Panel header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Bot className="w-4 h-4 text-primary" />
@@ -241,29 +261,23 @@ export function GeminiAnalysisPanel({
               className="flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold font-mono tracking-wide text-muted-foreground border border-border/40 hover:border-primary/40 hover:text-primary transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none"
             >
               <RefreshCw
-                className={`w-2.5 h-2.5 ${
-                  btc.isThinking || xau.isThinking ? "animate-spin" : ""
-                }`}
+                className={`w-2.5 h-2.5 ${btc.isThinking || xau.isThinking ? "animate-spin" : ""}`}
               />
               Refresh
             </button>
           )}
-          <Badge
-            className="text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-            data-ocid="gemini.success_state"
-          >
+          <Badge className="text-[9px] font-bold font-mono tracking-wider px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">
             <span className="relative flex h-1.5 w-1.5 mr-1.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
             </span>
-            API: GEMINI-1.5-PRO · ACTIVE &amp; VERIFIED
+            API: GEMINI-1.5-PRO-LATEST
           </Badge>
         </div>
       </div>
 
-      {/* Asset cards */}
       {isLoading ? (
-        <div className="space-y-3" data-ocid="gemini.loading_state">
+        <div className="space-y-3">
           {["BTC", "XAU"].map((a) => (
             <div
               key={a}
@@ -285,10 +299,9 @@ export function GeminiAnalysisPanel({
         </div>
       )}
 
-      {/* Footer */}
       <div className="flex items-center justify-between mt-3">
         <p className="text-[9px] text-muted-foreground font-mono">
-          Powered by Gemini 1.5 Pro · Secure backend outcall · Refreshes every
+          Powered by Gemini 1.5 Pro Latest · v1beta endpoint · Refreshes every
           60s
         </p>
         <div className="flex items-center gap-1">

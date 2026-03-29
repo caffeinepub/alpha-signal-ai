@@ -22,8 +22,13 @@ interface Props {
 }
 
 export function LiquidationCascadePanel({ state }: Props) {
-  const { longLiquidations, shortLiquidations, liquidationBias, isConnected } =
-    state;
+  const {
+    longLiquidations,
+    shortLiquidations,
+    liquidationBias,
+    isConnected,
+    statusMessage,
+  } = state;
 
   const total = longLiquidations + shortLiquidations;
   const isZero = total === 0;
@@ -90,9 +95,10 @@ export function LiquidationCascadePanel({ state }: Props) {
             Monitoring liquidations...
           </p>
           <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-            {isConnected
-              ? "Connected — waiting for events"
-              : "Connecting to Binance futures stream"}
+            {statusMessage ??
+              (isConnected
+                ? "Connected — waiting for events"
+                : "Connecting to Binance futures stream")}
           </p>
         </div>
       ) : (

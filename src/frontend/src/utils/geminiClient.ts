@@ -1,7 +1,6 @@
-// Gemini 1.5 Pro — frontend-only calls
-// API Key: AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ (Master Signal Sync key)
+// Gemini 1.5 Pro Latest — direct REST fetch, frontend-only
 const GEMINI_API_KEY = "AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ";
-const GEMINI_MODEL = "gemini-1.5-pro";
+const GEMINI_MODEL = "gemini-1.5-pro-latest";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 export interface GeminiAnalysisResult {
@@ -13,6 +12,7 @@ export interface GeminiAnalysisResult {
   bias: string;
   insight: string;
   summary: string;
+  diagnostic?: string;
 }
 
 export interface GeminiResearchResult {
@@ -23,11 +23,12 @@ export interface GeminiResearchResult {
   tradeBias: string;
   tradeSetup: string;
   overallRating: string;
+  diagnostic?: string;
 }
 
 export interface GeminiInstitutionalBias {
   bias: "BULLISH" | "BEARISH" | "NEUTRAL";
-  confidence: number; // 0–100
+  confidence: number;
   reasoning: string;
   alignsWithSFI: boolean;
 }
@@ -54,7 +55,11 @@ function parseTradeBias(text: string): string {
   return "HOLD";
 }
 
-async function fetchGemini(body: object, retries = 2): Promise<Response> {
+async function fetchGemini(
+  body: object,
+  retries = 2,
+): Promise<{ data: Record<string, unknown>; diagnostic: string | null }> {
+  let lastError = "";
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(GEMINI_URL, {
@@ -62,20 +67,79 @@ async function fetchGemini(body: object, retries = 2): Promise<Response> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (res.ok || attempt === retries) return res;
-      await new Promise((r) => setTimeout(r, 1000));
+
+      const responseText = await res.text();
+
+      if (!res.ok) {
+        let errDetail = "";
+        try {
+          const errJson = JSON.parse(responseText);
+          errDetail = errJson?.error?.message ?? responseText.substring(0, 200);
+        } catch {
+          errDetail = responseText.substring(0, 200);
+        }
+        lastError = `HTTP ${res.status}: ${errDetail}`;
+        console.error(`[Gemini] Attempt ${attempt + 1} failed:`, lastError);
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          continue;
+        }
+        return { data: {}, diagnostic: "AI connection retrying..." };
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch {
+        return { data: {}, diagnostic: "AI connection retrying..." };
+      }
+
+      const candidates = parsed?.candidates as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (!candidates || candidates.length === 0) {
+        return { data: {}, diagnostic: "AI connection retrying..." };
+      }
+
+      const finishReason = (candidates[0]?.finishReason as string) ?? "";
+      const rawText =
+        ((
+          (candidates[0]?.content as Record<string, unknown>)?.parts as Array<
+            Record<string, unknown>
+          >
+        )?.[0]?.text as string) ?? "";
+
+      if (!rawText && finishReason !== "STOP") {
+        return { data: {}, diagnostic: "AI connection retrying..." };
+      }
+
+      return { data: parsed, diagnostic: null };
     } catch (err) {
-      if (attempt === retries) throw err;
-      await new Promise((r) => setTimeout(r, 1000));
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Gemini] Attempt ${attempt + 1} network error:`,
+        lastError,
+      );
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      }
     }
   }
-  throw new Error("Gemini fetch failed after retries");
+  return { data: {}, diagnostic: "AI connection retrying..." };
 }
 
-// ── Institutional Bias Confirmation ──────────────────────────────────────────
-// Used by the SFI signal cards to confirm institutional alignment BEFORE
-// the signal is shown. This is DISPLAY/CONFIRMATION only — the SFI state
-// machine remains the sole signal authority.
+function extractRawText(data: Record<string, unknown>): string {
+  const candidates = data?.candidates as
+    | Array<Record<string, unknown>>
+    | undefined;
+  return (
+    ((
+      (candidates?.[0]?.content as Record<string, unknown>)?.parts as Array<
+        Record<string, unknown>
+      >
+    )?.[0]?.text as string) ?? ""
+  );
+}
 
 export async function callGeminiInstitutionalBias(
   asset: string,
@@ -96,37 +160,35 @@ CONFIDENCE: number 0-100
 ALIGNS_WITH_SFI: YES or NO
 REASONING: one sentence only`;
 
-  try {
-    const response = await fetchGemini({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 150 },
-    });
-    const data = await response.json();
-    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const { data, diagnostic } = await fetchGemini({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 150 },
+  });
 
-    const biasMatch = text.match(/BIAS:\s*(BULLISH|BEARISH|NEUTRAL)/i);
-    const confMatch = text.match(/CONFIDENCE:\s*(\d+)/i);
-    const alignsMatch = text.match(/ALIGNS_WITH_SFI:\s*(YES|NO)/i);
-    const reasoningMatch = text.match(/REASONING:\s*(.+)/i);
-
-    return {
-      bias:
-        (biasMatch?.[1]?.toUpperCase() as GeminiInstitutionalBias["bias"]) ??
-        "NEUTRAL",
-      confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 50,
-      alignsWithSFI: alignsMatch?.[1]?.toUpperCase() === "YES",
-      reasoning:
-        reasoningMatch?.[1]?.trim() ?? "No additional context available.",
-    };
-  } catch (err) {
-    console.error("[Gemini] callGeminiInstitutionalBias failed:", err);
+  if (diagnostic) {
     return {
       bias: "NEUTRAL",
       confidence: 50,
       alignsWithSFI: true,
-      reasoning: "Confirmation unavailable.",
+      reasoning: "AI connection retrying...",
     };
   }
+
+  const text = extractRawText(data);
+  const biasMatch = text.match(/BIAS:\s*(BULLISH|BEARISH|NEUTRAL)/i);
+  const confMatch = text.match(/CONFIDENCE:\s*(\d+)/i);
+  const alignsMatch = text.match(/ALIGNS_WITH_SFI:\s*(YES|NO)/i);
+  const reasoningMatch = text.match(/REASONING:\s*(.+)/i);
+
+  return {
+    bias:
+      (biasMatch?.[1]?.toUpperCase() as GeminiInstitutionalBias["bias"]) ??
+      "NEUTRAL",
+    confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 50,
+    alignsWithSFI: alignsMatch?.[1]?.toUpperCase() === "YES",
+    reasoning:
+      reasoningMatch?.[1]?.trim() ?? "No additional context available.",
+  };
 }
 
 export async function callGeminiResearch(
@@ -155,32 +217,17 @@ Target 2: [price level]
 
 Be specific, data-driven, and professional. Write as an institutional analyst.`;
 
-  const response = await fetchGemini({
+  const { data, diagnostic } = await fetchGemini({
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
   });
 
-  if (!response.ok) {
-    const errBody = await response.text();
-    console.error(`[Gemini] HTTP ${response.status}:`, errBody);
-    throw new Error(
-      `Gemini API error ${response.status}: ${response.statusText}`,
-    );
+  if (diagnostic) {
+    console.error("[Gemini] callGeminiResearch:", diagnostic);
+    throw new Error(diagnostic);
   }
 
-  const data = await response.json();
-  console.log("[Gemini] Raw response:", JSON.stringify(data, null, 2));
-
-  const rawText: string =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-  if (!rawText) {
-    const finishReason = data?.candidates?.[0]?.finishReason;
-    throw new Error(
-      `Gemini returned empty response (finishReason: ${finishReason ?? "unknown"})`,
-    );
-  }
-
+  const rawText = extractRawText(data);
   const executiveSummary = extractSection(rawText, "Executive Summary");
   const marketContext = extractSection(rawText, "Market Context");
   const technicalAnalysis = extractSection(rawText, "Technical Analysis");
@@ -188,7 +235,6 @@ Be specific, data-driven, and professional. Write as an institutional analyst.`;
   const tradeBias = parseTradeBias(
     extractSection(rawText, "Trade Bias", "Trade Bias:") || rawText,
   );
-  const overallRating = tradeBias;
 
   return {
     rawText,
@@ -197,7 +243,7 @@ Be specific, data-driven, and professional. Write as an institutional analyst.`;
     technicalAnalysis: technicalAnalysis || "",
     tradeBias,
     tradeSetup: tradeSetup || "",
-    overallRating,
+    overallRating: tradeBias,
   };
 }
 
@@ -209,34 +255,12 @@ export async function callGeminiAnalysis(
 Analyze ${symbol} for ${marketType} market.
 Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a confidence percentage (0-100), a signal (BUY/SELL/HOLD), approximate support and resistance levels, and a 2-sentence insight.`;
 
-  try {
-    const response = await fetchGemini({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3 },
-    });
-    const data = await response.json();
-    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const { data, diagnostic } = await fetchGemini({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.3 },
+  });
 
-    const biasMatch = text.match(/\b(BULLISH|BEARISH|NEUTRAL)\b/i);
-    const confMatch = text.match(/(\d{1,3})\s*%?\s*confidence/i);
-    const signalMatch = text.match(
-      /\b(STRONG BUY|STRONG SELL|BUY|SELL|HOLD)\b/i,
-    );
-    const supportMatch = text.match(/support[^\d]*(\d[\d,\.]+)/i);
-    const resistanceMatch = text.match(/resistance[^\d]*(\d[\d,\.]+)/i);
-
-    return {
-      trend: biasMatch ? biasMatch[1].toLowerCase() : "neutral",
-      confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 55,
-      signal: signalMatch ? signalMatch[1].toUpperCase() : "HOLD",
-      support_level: supportMatch ? supportMatch[1] : "N/A",
-      resistance_level: resistanceMatch ? resistanceMatch[1] : "N/A",
-      bias: biasMatch ? biasMatch[1].toUpperCase() : "NEUTRAL",
-      insight: text.substring(0, 200).replace(/\n/g, " "),
-      summary: text.substring(0, 100),
-    };
-  } catch (error) {
-    console.error("[Gemini] callGeminiAnalysis failed:", error);
+  if (diagnostic) {
     return {
       trend: "neutral",
       confidence: 50,
@@ -244,22 +268,36 @@ Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a
       support_level: "N/A",
       resistance_level: "N/A",
       bias: "NEUTRAL",
-      insight: "Analysis unavailable. Please retry.",
-      summary: "Retry in a moment",
+      insight: "AI connection retrying...",
+      summary: "AI connection retrying...",
+      diagnostic,
     };
   }
+
+  const text = extractRawText(data);
+  const biasMatch = text.match(/\b(BULLISH|BEARISH|NEUTRAL)\b/i);
+  const confMatch = text.match(/(\d{1,3})\s*%?\s*confidence/i);
+  const signalMatch = text.match(/\b(STRONG BUY|STRONG SELL|BUY|SELL|HOLD)\b/i);
+  const supportMatch = text.match(/support[^\d]*(\d[\d,\.]+)/i);
+  const resistanceMatch = text.match(/resistance[^\d]*(\d[\d,\.]+)/i);
+
+  return {
+    trend: biasMatch ? biasMatch[1].toLowerCase() : "neutral",
+    confidence: confMatch ? Math.min(100, Number.parseInt(confMatch[1])) : 55,
+    signal: signalMatch ? signalMatch[1].toUpperCase() : "HOLD",
+    support_level: supportMatch ? supportMatch[1] : "N/A",
+    resistance_level: resistanceMatch ? resistanceMatch[1] : "N/A",
+    bias: biasMatch ? biasMatch[1].toUpperCase() : "NEUTRAL",
+    insight: text.substring(0, 200).replace(/\n/g, " "),
+    summary: text.substring(0, 100),
+  };
 }
 
 export async function callGeminiRaw(prompt: string): Promise<string> {
-  try {
-    const response = await fetchGemini({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3 },
-    });
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  } catch (error) {
-    console.error("[Gemini] callGeminiRaw failed:", error);
-    return "";
-  }
+  const { data, diagnostic } = await fetchGemini({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.3 },
+  });
+  if (diagnostic) return "AI connection retrying...";
+  return extractRawText(data);
 }
