@@ -30,38 +30,35 @@ function calcEMA(data: number[], period: number): number[] {
   return out;
 }
 
-function calcStdDev(data: number[], period: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      out.push(Number.NaN);
-      continue;
-    }
-    const slice = data.slice(i - period + 1, i + 1);
-    const mean = slice.reduce((s, v) => s + v, 0) / period;
-    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period;
-    out.push(Math.sqrt(variance));
-  }
-  return out;
-}
-
+// ── VERSION 102: Darker cloud, thicker borders for instant SFI state ID ────
 function computeSFIBands(candles: Candle[]): {
   upper: number[];
   lower: number[];
   basis: number[];
+  ema200: number[];
 } {
-  const hlc3 = candles.map((c) => (c.high + c.low + c.close) / 3);
-  const ema10 = calcEMA(hlc3, 10);
-  const ema20 = calcEMA(hlc3, 20);
+  const closes = candles.map((c) => c.close);
+  const ema10 = calcEMA(closes, 10);
+  const ema20 = calcEMA(closes, 20);
   const basis = ema10.map((v, i) => (v + ema20[i]) / 2);
-  const vol = calcStdDev(hlc3, 10);
-  const smoothVol = calcEMA(
-    vol.map((v) => (Number.isNaN(v) ? 0 : v)),
-    14,
+
+  const stdev: number[] = closes.map((_, i) => {
+    if (i < 9) return Number.NaN;
+    const slice = closes.slice(i - 9, i + 1);
+    const mean = slice.reduce((s, v) => s + v, 0) / 10;
+    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / 10;
+    return Math.sqrt(variance);
+  });
+
+  const upper = basis.map((b, i) =>
+    Number.isNaN(stdev[i]) ? Number.NaN : b + 2.0 * stdev[i],
   );
-  const upper = basis.map((b, i) => b + smoothVol[i] * 2.0);
-  const lower = basis.map((b, i) => b - smoothVol[i] * 2.0);
-  return { upper, lower, basis };
+  const lower = basis.map((b, i) =>
+    Number.isNaN(stdev[i]) ? Number.NaN : b - 2.0 * stdev[i],
+  );
+  const ema200 = calcEMA(closes, 200);
+
+  return { upper, lower, basis, ema200 };
 }
 
 export function SFICanvasOverlay({
@@ -121,7 +118,7 @@ export function SFICanvasOverlay({
     const gap = chartW / n;
 
     // Compute SFI bands for displayed candles
-    const { upper, lower, basis } = computeSFIBands(display);
+    const { upper, lower, basis, ema200 } = computeSFIBands(display);
 
     // Price range
     let minP = Number.POSITIVE_INFINITY;
@@ -165,8 +162,28 @@ export function SFICanvasOverlay({
       ctx.stroke();
     }
 
-    // ── EMA Cloud (fill between upper/lower bands) ───────────────────────────
-    // Upper band line
+    // ── VERSION 102: Dark Emerald Green (bullish) / Dark Blood Red (bearish)
+    // ── 40-50% opacity fill for strong visual impact ─────────────────────────
+    for (let i = 0; i < n; i++) {
+      if (
+        Number.isNaN(upper[i]) ||
+        Number.isNaN(lower[i]) ||
+        Number.isNaN(basis[i])
+      )
+        continue;
+      const c = display[i];
+      const isAbove = c.close >= basis[i];
+      const x = xPos(i) - gap / 2;
+      const yTop = yScale(upper[i]);
+      const yBot = yScale(lower[i]);
+      // Dark Emerald Green: #065f46 / Dark Blood Red: #7f1d1d — at 45% opacity
+      ctx.fillStyle = isAbove
+        ? "rgba(6,95,70,0.45)" // Dark Emerald Green ~45% opacity
+        : "rgba(127,29,29,0.45)"; // Dark Blood Red ~45% opacity
+      ctx.fillRect(x, yTop, gap, yBot - yTop);
+    }
+
+    // ── VERSION 102: Upper band — thicker border (linewidth=2) ───────────────
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < n; i++) {
@@ -181,35 +198,11 @@ export function SFICanvasOverlay({
         started = true;
       } else ctx.lineTo(x, y);
     }
-    // Complete the fill path going backwards along lower band
-    for (let i = n - 1; i >= 0; i--) {
-      if (Number.isNaN(lower[i])) continue;
-      ctx.lineTo(xPos(i), yScale(lower[i]));
-    }
-    ctx.closePath();
-    ctx.fillStyle = "rgba(124,58,237,0.12)";
-    ctx.fill();
-
-    // Upper band stroke
-    ctx.beginPath();
-    started = false;
-    for (let i = 0; i < n; i++) {
-      if (Number.isNaN(upper[i])) {
-        started = false;
-        continue;
-      }
-      const x = xPos(i);
-      const y = yScale(upper[i]);
-      if (!started) {
-        ctx.moveTo(x, y);
-        started = true;
-      } else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "rgba(0,212,255,0.6)";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(16,185,129,0.9)"; // Bright emerald border for upper
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Lower band stroke
+    // ── VERSION 102: Lower band — thicker border (linewidth=2) ───────────────
     ctx.beginPath();
     started = false;
     for (let i = 0; i < n; i++) {
@@ -224,11 +217,11 @@ export function SFICanvasOverlay({
         started = true;
       } else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "rgba(236,72,153,0.6)";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(220,38,38,0.9)"; // Bright red border for lower
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Basis line
+    // Basis line (dashed, subdued)
     ctx.beginPath();
     started = false;
     for (let i = 0; i < n; i++) {
@@ -243,9 +236,30 @@ export function SFICanvasOverlay({
         started = true;
       } else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "rgba(139,92,246,0.5)";
+    ctx.strokeStyle = "rgba(167,139,250,0.6)";
     ctx.lineWidth = 0.8;
     ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ── EMA 200 — high contrast gray so it's visible over the dark cloud ─────
+    ctx.beginPath();
+    let started200 = false;
+    for (let i = 0; i < n; i++) {
+      if (Number.isNaN(ema200[i])) {
+        started200 = false;
+        continue;
+      }
+      const x = xPos(i);
+      const y = yScale(ema200[i]);
+      if (!started200) {
+        ctx.moveTo(x, y);
+        started200 = true;
+      } else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = "rgba(209,213,219,0.9)"; // High-contrast gray, fully visible
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -265,36 +279,35 @@ export function SFICanvasOverlay({
       if (isLow) pivotLows.push(c.low);
     }
 
-    // Draw Supply zones (red) — last 3 pivot highs
+    // Draw Supply zones (red)
     const supplyZones = pivotHighs.slice(-3);
     for (const ph of supplyZones) {
-      const zoneH = ph * 0.001; // 0.1% height
+      const zoneH = ph * 0.001;
       const y1 = yScale(ph + zoneH);
       const y2 = yScale(ph - zoneH);
-      ctx.fillStyle = "rgba(239,68,68,0.15)";
+      ctx.fillStyle = "rgba(239,68,68,0.18)";
       ctx.fillRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.strokeStyle = "rgba(239,68,68,0.4)";
+      ctx.strokeStyle = "rgba(239,68,68,0.6)";
       ctx.lineWidth = 0.5;
       ctx.strokeRect(PAD_LEFT, y1, chartW, y2 - y1);
-      // Label
-      ctx.fillStyle = "rgba(239,68,68,0.7)";
+      ctx.fillStyle = "rgba(252,165,165,0.9)";
       ctx.font = "bold 9px monospace";
       ctx.textAlign = "left";
       ctx.fillText("SUPPLY", PAD_LEFT + 4, y1 + 9);
     }
 
-    // Draw Demand zones (green) — last 3 pivot lows
+    // Draw Demand zones (green)
     const demandZones = pivotLows.slice(-3);
     for (const pl of demandZones) {
       const zoneH = pl * 0.001;
       const y1 = yScale(pl + zoneH);
       const y2 = yScale(pl - zoneH);
-      ctx.fillStyle = "rgba(34,197,94,0.15)";
+      ctx.fillStyle = "rgba(34,197,94,0.18)";
       ctx.fillRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.strokeStyle = "rgba(34,197,94,0.4)";
+      ctx.strokeStyle = "rgba(34,197,94,0.6)";
       ctx.lineWidth = 0.5;
       ctx.strokeRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.fillStyle = "rgba(34,197,94,0.7)";
+      ctx.fillStyle = "rgba(134,239,172,0.9)";
       ctx.font = "bold 9px monospace";
       ctx.textAlign = "left";
       ctx.fillText("DEMAND", PAD_LEFT + 4, y2 - 2);
@@ -342,25 +355,51 @@ export function SFICanvasOverlay({
       ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
     }
 
-    // ── BUY / SELL labels at flip candles ────────────────────────────────────
+    // ── BUY / SELL labels — high contrast, visible over dark cloud ───────────
     for (const flip of flipCandles) {
       const c = display[flip.idx];
       const x = xPos(flip.idx);
-      ctx.font = "bold 10px monospace";
-      ctx.textAlign = "center";
       if (flip.type === "BUY") {
+        const y = yScale(c.low) + 14;
+        // Shadow for legibility over dark cloud
+        ctx.shadowColor = "rgba(0,0,0,0.8)";
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 8);
+        ctx.lineTo(x - 7, y + 3);
+        ctx.lineTo(x + 7, y + 3);
+        ctx.closePath();
         ctx.fillStyle = "#4ade80";
-        ctx.fillText("BUY", x, yScale(c.high) - 6);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("BUY", x, y + 16);
+        ctx.shadowBlur = 0;
       } else {
+        const y = yScale(c.high) - 14;
+        ctx.shadowColor = "rgba(0,0,0,0.8)";
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 8);
+        ctx.lineTo(x - 7, y - 3);
+        ctx.lineTo(x + 7, y - 3);
+        ctx.closePath();
         ctx.fillStyle = "#f87171";
-        ctx.fillText("SELL", x, yScale(c.low) + 14);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("SELL", x, y - 7);
+        ctx.shadowBlur = 0;
       }
     }
 
     // ── Price axis (right) ───────────────────────────────────────────────────
-    ctx.fillStyle = "rgba(156,163,175,0.8)";
+    ctx.fillStyle = "rgba(209,213,219,0.9)";
     ctx.font = "9px monospace";
     ctx.textAlign = "left";
+    ctx.shadowBlur = 0;
     const ticks = 5;
     for (let i = 0; i <= ticks; i++) {
       const price = lo + (range / ticks) * i;
@@ -373,7 +412,7 @@ export function SFICanvasOverlay({
     }
 
     // ── Time axis (bottom) ────────────────────────────────────────────────────
-    ctx.fillStyle = "rgba(156,163,175,0.6)";
+    ctx.fillStyle = "rgba(156,163,175,0.7)";
     ctx.font = "8px monospace";
     ctx.textAlign = "center";
     for (let i = 0; i < n; i += 20) {
@@ -395,10 +434,8 @@ export function SFICanvasOverlay({
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
     const obs = new ResizeObserver(() => {
-      // Trigger redraw by forcing a state update — we use a trick:
-      // re-dispatch the same effect by mutating canvas size
       const canvas = canvasRef.current;
-      if (canvas) canvas.width = 0; // triggers re-paint on next effect run
+      if (canvas) canvas.width = 0;
     });
     obs.observe(wrapper);
     return () => obs.disconnect();
@@ -424,23 +461,29 @@ export function SFICanvasOverlay({
             style={{ backgroundColor: hasData ? "#22c55e" : "#6b7280" }}
           />
           <span className="text-xs font-mono font-semibold text-foreground/80">
-            SFI Chart — {asset} {timeframe}
+            SFI Cloud v102 — {asset} {timeframe}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-[10px] font-mono">
             <span
-              className="w-3 h-0.5 rounded"
-              style={{ background: "rgba(0,212,255,0.6)" }}
+              className="w-3 h-2 rounded-sm"
+              style={{
+                background: "rgba(6,95,70,0.7)",
+                border: "1.5px solid rgba(16,185,129,0.9)",
+              }}
             />
-            <span className="text-muted-foreground">Upper Band</span>
+            <span className="text-muted-foreground">Bullish</span>
           </div>
           <div className="flex items-center gap-1.5 text-[10px] font-mono">
             <span
-              className="w-3 h-0.5 rounded"
-              style={{ background: "rgba(236,72,153,0.6)" }}
+              className="w-3 h-2 rounded-sm"
+              style={{
+                background: "rgba(127,29,29,0.7)",
+                border: "1.5px solid rgba(220,38,38,0.9)",
+              }}
             />
-            <span className="text-muted-foreground">Lower Band</span>
+            <span className="text-muted-foreground">Bearish</span>
           </div>
           {currentSignal && (
             <span
@@ -466,7 +509,7 @@ export function SFICanvasOverlay({
       </div>
 
       {/* Zone legend */}
-      <div className="flex items-center gap-4 px-4 py-2 border-t border-border/20 bg-black/10">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-t border-border/20 bg-black/10">
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
             className="w-3 h-2 rounded-sm"
@@ -475,7 +518,7 @@ export function SFICanvasOverlay({
               border: "1px solid rgba(239,68,68,0.5)",
             }}
           />
-          <span className="text-muted-foreground">Supply Zone</span>
+          <span className="text-muted-foreground">Supply</span>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
@@ -485,17 +528,20 @@ export function SFICanvasOverlay({
               border: "1px solid rgba(34,197,94,0.5)",
             }}
           />
-          <span className="text-muted-foreground">Demand Zone</span>
+          <span className="text-muted-foreground">Demand</span>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
-            className="w-3 h-2 rounded-sm"
-            style={{ background: "rgba(124,58,237,0.2)" }}
+            className="w-5 h-0.5"
+            style={{
+              background: "rgba(209,213,219,0.9)",
+              borderTop: "1.5px dashed rgba(209,213,219,0.9)",
+            }}
           />
-          <span className="text-muted-foreground">EMA Cloud</span>
+          <span className="text-muted-foreground">EMA 200</span>
         </div>
         <span className="text-[10px] text-muted-foreground/50 ml-auto">
-          {candles.length} candles loaded
+          {candles.length} candles
         </span>
       </div>
     </div>

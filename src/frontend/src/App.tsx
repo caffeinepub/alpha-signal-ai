@@ -17,6 +17,7 @@ import ChatPage from "./pages/ChatPage";
 import Dashboard from "./pages/Dashboard";
 import Liquidation from "./pages/Liquidation";
 import Performance from "./pages/Performance";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Research from "./pages/Research";
 import Signals from "./pages/Signals";
 import VideosPage from "./pages/VideosPage";
@@ -31,6 +32,7 @@ const PAGE_META: Record<string, { title: string }> = {
   "/admin": { title: "Admin Dashboard" },
   "/chat": { title: "AI Chat" },
   "/videos": { title: "Video Learning" },
+  "/privacy-policy": { title: "Privacy Policy" },
 };
 
 function AppLayout() {
@@ -153,6 +155,12 @@ const chatRoute = createRoute({
   ),
 });
 
+const privacyPolicyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy-policy",
+  component: PrivacyPolicy,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   chartsRoute,
@@ -163,6 +171,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   videosRoute,
   chatRoute,
+  privacyPolicyRoute,
 ]);
 
 const router = createRouter({ routeTree });

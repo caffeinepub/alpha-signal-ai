@@ -1,28 +1,24 @@
 import { useMemo } from "react";
 import type { Candle } from "./useBinanceKlines";
 
-// ─── SFI Follow Trend Level 1 — State-Based Trailing Stop Logic ──────────────
+// ─── SFI Follow Trend Level 1 — VERSION 100 ───────────────────────────────────
 //
-//  hlc3       = (high + low + close) / 3
-//  Basis      = (EMA(hlc3, 10) + EMA(hlc3, 20)) / 2
-//  vol        = StdDev(hlc3, 10)
-//  smoothVol  = EMA(vol, 14)
-//  UpperBand  = Basis + (smoothVol × 2.0)
-//  LowerBand  = Basis − (smoothVol × 2.0)
+//  basis      = (ema_fast + ema_slow) / 2  (on close prices)
+//  stdev      = StdDev(close, STD_LEN)      (direct, no smoothing)
+//  UpperBand  = basis + (stdev * SENSITIVITY)
+//  LowerBand  = basis - (stdev * SENSITIVITY)
 //
 //  TREND STATE MACHINE:
 //    - BUY  triggers ONLY when candle CLOSES ABOVE UpperBand.
 //    - SELL triggers ONLY when candle CLOSES BELOW LowerBand.
 //    - State LOCKED — stays SELL on bounces. Only opposite band break flips.
 //
-//  FIXED SL (v85):
+//  FIXED SL:
 //    - BTC:     SL = Entry ± 200 USD (200 Points)
 //    - XAU/USD: SL = Entry ± 3 USD  (30 Pips @ $0.10/pip)
 //    - EUR/USD: SL = Entry ± 0.0015 (15 pips @ 0.0001/pip)
 //
-//  EXIT RULE (v85):
-//    - Target = "Trend Flip" — trade stays active until signal flips.
-//    - target field = 0 to indicate "Trend Flip" (no fixed TP).
+//  EXIT RULE: Target = "Trend Flip" — trade stays active until signal flips.
 //
 //  STRICT LOCK: ONLY this logic sets the signal.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,16 +26,17 @@ import type { Candle } from "./useBinanceKlines";
 const EMA_FAST = 10;
 const EMA_SLOW = 20;
 const STD_LEN = 10;
-const SMOOTH_LEN = 14;
 const SENSITIVITY = 2.0;
 
-const MIN_CANDLES = Math.max(EMA_SLOW, STD_LEN) + SMOOTH_LEN + 10;
+// firstValid = (EMA_SLOW - 1) + (STD_LEN - 1) = 28
+const firstValid = EMA_SLOW - 1 + STD_LEN - 1;
+const MIN_CANDLES = firstValid + 10;
 
 // Fixed SL distances per asset
 const FIXED_SL: Record<string, number> = {
-  BTC: 200, // 200 USD (200 points)
-  "XAU/USD": 3, // 30 pips × $0.10/pip = $3
-  "EUR/USD": 0.0015, // 15 pips × 0.0001/pip
+  BTC: 200,
+  "XAU/USD": 3,
+  "EUR/USD": 0.0015,
 };
 
 export interface SFISignal {
@@ -48,10 +45,10 @@ export interface SFISignal {
   signal: "BUY" | "SELL" | "WAIT";
   sfiColor: "GREEN" | "RED" | "NEUTRAL";
   isSideways: boolean;
-  entry: number; // locked at flip candle
-  stopLoss: number; // fixed SL: BTC=200pts, Gold=30pips, EURUSD=30pips
-  slDistance: number; // raw SL distance for display
-  target: number; // 0 = "Trend Flip" (exit when signal flips)
+  entry: number;
+  stopLoss: number;
+  slDistance: number;
+  target: number;
   ema50: number;
   ema200: number;
   support: number;
@@ -147,7 +144,7 @@ export function calcSupportResistance(candles: Candle[]): {
   return { support, resistance };
 }
 
-// ── Core SFI signal generator ─────────────────────────────────────────────────
+// ── Core SFI signal generator — VERSION 100 ──────────────────────────────────
 
 function generateSignal(
   candles: Candle[],
@@ -181,49 +178,36 @@ function generateSignal(
   const wc = closed.length >= MIN_CANDLES ? closed : candles;
   if (wc.length < MIN_CANDLES) return nullSignal;
 
-  // ── Step 1–6: Compute bands ──────────────────────────────────────────────
-  const hlc3: number[] = wc.map((c) => (c.high + c.low + c.close) / 3);
-  const ema10arr = emaFromValues(hlc3, EMA_FAST);
-  const ema20arr = emaFromValues(hlc3, EMA_SLOW);
+  // ── VERSION 100: basis = (ema_fast + ema_slow) / 2 on close prices ────────
+  const closes = wc.map((c) => c.close);
+  const ema10arr = emaFromValues(closes, EMA_FAST);
+  const ema20arr = emaFromValues(closes, EMA_SLOW);
   const basisArr: number[] = ema10arr.map((v, i) => (v + ema20arr[i]) / 2);
 
-  const volArr: number[] = hlc3.map((_, i) => {
+  // Direct stdev — no EMA smoothing of vol (VERSION 100 change)
+  const stdevArr: number[] = closes.map((_, i) => {
     if (i < STD_LEN - 1) return Number.NaN;
-    const slice = hlc3.slice(i - STD_LEN + 1, i + 1);
+    const slice = closes.slice(i - STD_LEN + 1, i + 1);
     const mean = slice.reduce((s, v) => s + v, 0) / STD_LEN;
     const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / STD_LEN;
     return Math.sqrt(variance);
   });
 
-  const validVolStart = STD_LEN - 1;
-  const volValid = volArr.slice(validVolStart);
-  const smoothVolValid = emaFromValues(volValid, SMOOTH_LEN);
-  const smoothVolArr: number[] = new Array(wc.length).fill(Number.NaN);
-  for (let i = 0; i < smoothVolValid.length; i++) {
-    smoothVolArr[validVolStart + i] = smoothVolValid[i];
-  }
-
   const upperArr: number[] = basisArr.map((b, i) =>
-    Number.isNaN(smoothVolArr[i])
-      ? Number.NaN
-      : b + SENSITIVITY * smoothVolArr[i],
+    Number.isNaN(stdevArr[i]) ? Number.NaN : b + SENSITIVITY * stdevArr[i],
   );
   const lowerArr: number[] = basisArr.map((b, i) =>
-    Number.isNaN(smoothVolArr[i])
-      ? Number.NaN
-      : b - SENSITIVITY * smoothVolArr[i],
+    Number.isNaN(stdevArr[i]) ? Number.NaN : b - SENSITIVITY * stdevArr[i],
   );
 
-  // ── Step 7: State-Based Trend State Machine ───────────────────────────────
+  // ── State-Based Trend State Machine ──────────────────────────────────────
   type TState = "BULLISH" | "BEARISH" | "NEUTRAL";
   let trendState: TState = "NEUTRAL";
   let lastSignal: "BUY" | "SELL" | "WAIT" = "WAIT";
-
   let lockedEntry = 0;
   let lockedSL = 0;
 
   const fixedSlDist = FIXED_SL[asset] ?? 0;
-  const firstValid = validVolStart + SMOOTH_LEN - 1;
 
   for (let i = firstValid; i < wc.length; i++) {
     const close = wc[i].close;
@@ -236,13 +220,11 @@ function generateSignal(
         trendState = "BULLISH";
         lastSignal = "BUY";
         lockedEntry = close;
-        // Fixed SL: entry - fixedSlDist
         lockedSL = close - fixedSlDist;
       } else if (close < lower) {
         trendState = "BEARISH";
         lastSignal = "SELL";
         lockedEntry = close;
-        // Fixed SL: entry + fixedSlDist
         lockedSL = close + fixedSlDist;
       }
     } else if (trendState === "BULLISH") {
@@ -309,7 +291,7 @@ function generateSignal(
     entry: lockedEntry,
     stopLoss: lockedSL,
     slDistance: fixedSlDist,
-    target: 0, // 0 = "Trend Flip" — no fixed TP, exit on signal flip
+    target: 0,
     ema50,
     ema200,
     support,

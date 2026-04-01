@@ -178,7 +178,7 @@ export default function Sidebar({
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-border">
+      <div className="px-4 py-3 border-t border-border space-y-1">
         <div className="text-[10px] text-muted-foreground text-center">
           © {new Date().getFullYear()}{" "}
           <a
@@ -189,6 +189,16 @@ export default function Sidebar({
           >
             caffeine.ai
           </a>
+        </div>
+        <div className="text-[10px] text-muted-foreground/60 text-center">
+          <a
+            href="/privacy-policy"
+            className="hover:text-primary transition-colors underline underline-offset-2"
+          >
+            Privacy Policy
+          </a>
+          {" · "}
+          <span className="italic">Educational use only</span>
         </div>
       </div>
     </div>

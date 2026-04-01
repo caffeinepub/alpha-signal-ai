@@ -843,6 +843,50 @@ export default function Dashboard() {
             LIVE · No Repaint
           </span>
         </div>
+        {sfi3mBtc &&
+          (sfi3mBtc.signal === "BUY" || sfi3mBtc.signal === "SELL") && (
+            <div className="mb-3 flex items-center gap-4 bg-black/40 border border-cyan-500/20 rounded-xl px-4 py-3">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">
+                🔒 SFI STATE-LOCK
+              </span>
+              <div className="flex items-center gap-6 text-xs font-mono ml-2">
+                <div>
+                  <span className="text-gray-500">Entry </span>
+                  <span className="text-white font-bold">
+                    {sfi3mBtc.entry > 0
+                      ? sfi3mBtc.entry.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "2014"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-red-400/70">SL </span>
+                  <span className="text-red-400 font-bold">
+                    {sfi3mBtc.stopLoss > 0
+                      ? sfi3mBtc.stopLoss.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "2014"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Signal </span>
+                  <span
+                    className={
+                      sfi3mBtc.signal === "BUY"
+                        ? "text-emerald-400 font-bold"
+                        : "text-red-400 font-bold"
+                    }
+                  >
+                    {sfi3mBtc.signal}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <SFISignalCard
             asset="BTC"
