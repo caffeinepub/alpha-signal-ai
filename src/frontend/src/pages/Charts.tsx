@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { SignalChartOverlay } from "../components/SignalChartOverlay";
+import { SFICanvasOverlay } from "../components/SFICanvasOverlay";
+import { useBinanceKlines } from "../hooks/useBinanceKlines";
+import { useEURUSD } from "../hooks/useEURUSD";
+import { useSFIEngine } from "../hooks/useSFIEngine";
 import type { EngineSignal } from "../hooks/useSignalEngine";
 import { useSignalEngine } from "../hooks/useSignalEngine";
 
@@ -641,6 +644,29 @@ export default function Charts() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>("1H");
 
   const { signals } = useSignalEngine();
+  const klines = useBinanceKlines();
+  const eurusd = useEURUSD();
+  const { signals: sfiSignals } = useSFIEngine(
+    klines.candles3m_btc,
+    klines.candles15m_btc,
+    klines.candles3m_xau,
+    klines.candles15m_xau,
+    eurusd.candles3m,
+    eurusd.candles15m,
+  );
+  const overlayCandles = (() => {
+    if (selectedAsset === "BTC")
+      return selectedTimeframe === "15m"
+        ? klines.candles15m_btc
+        : klines.candles3m_btc;
+    if (selectedAsset === "XAU")
+      return selectedTimeframe === "15m"
+        ? klines.candles15m_xau
+        : klines.candles3m_xau;
+    return eurusd.candles3m;
+  })();
+  const overlayTf: "3m" | "15m" = selectedTimeframe === "15m" ? "15m" : "3m";
+  const overlayAsset = selectedAsset === "XAU" ? "XAU/USD" : selectedAsset;
 
   // Find signal for selected asset (XAU may appear as "XAU" or "GOLD")
   const activeSignal: EngineSignal | undefined = signals.find(
@@ -752,7 +778,12 @@ export default function Charts() {
       </div>
 
       {/* ── AI Signal Chart Overlay ───────────────────────────────────────── */}
-      <SignalChartOverlay asset={selectedAsset} />
+      <SFICanvasOverlay
+        candles={overlayCandles}
+        signals={sfiSignals}
+        asset={overlayAsset}
+        timeframe={overlayTf}
+      />
 
       {/* ── AI Signal Panel ───────────────────────────────────────────────── */}
       <AnimatePresence mode="wait">

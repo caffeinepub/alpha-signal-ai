@@ -18,7 +18,7 @@ import type { Candle } from "./useBinanceKlines";
 //  FIXED SL (v85):
 //    - BTC:     SL = Entry ± 200 USD (200 Points)
 //    - XAU/USD: SL = Entry ± 3 USD  (30 Pips @ $0.10/pip)
-//    - EUR/USD: SL = Entry ± 0.0030 (30 pips @ 0.0001/pip)
+//    - EUR/USD: SL = Entry ± 0.0015 (15 pips @ 0.0001/pip)
 //
 //  EXIT RULE (v85):
 //    - Target = "Trend Flip" — trade stays active until signal flips.
@@ -39,7 +39,7 @@ const MIN_CANDLES = Math.max(EMA_SLOW, STD_LEN) + SMOOTH_LEN + 10;
 const FIXED_SL: Record<string, number> = {
   BTC: 200, // 200 USD (200 points)
   "XAU/USD": 3, // 30 pips × $0.10/pip = $3
-  "EUR/USD": 0.003, // 30 pips × 0.0001/pip
+  "EUR/USD": 0.0015, // 15 pips × 0.0001/pip
 };
 
 export interface SFISignal {
