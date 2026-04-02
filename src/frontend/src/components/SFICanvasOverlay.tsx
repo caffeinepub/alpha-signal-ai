@@ -30,7 +30,7 @@ function calcEMA(data: number[], period: number): number[] {
   return out;
 }
 
-// ── VERSION 102: Darker cloud, thicker borders for instant SFI state ID ────
+// ── Pure SFI Engine — dark cloud at 60% opacity, no S/D zones ──────────────
 function computeSFIBands(candles: Candle[]): {
   upper: number[];
   lower: number[];
@@ -162,8 +162,7 @@ export function SFICanvasOverlay({
       ctx.stroke();
     }
 
-    // ── VERSION 102: Dark Emerald Green (bullish) / Dark Blood Red (bearish)
-    // ── 40-50% opacity fill for strong visual impact ─────────────────────────
+    // ── Dark cloud fill: 60% opacity — Dark Emerald Green (UP) / Dark Blood Red (DOWN)
     for (let i = 0; i < n; i++) {
       if (
         Number.isNaN(upper[i]) ||
@@ -176,14 +175,14 @@ export function SFICanvasOverlay({
       const x = xPos(i) - gap / 2;
       const yTop = yScale(upper[i]);
       const yBot = yScale(lower[i]);
-      // Dark Emerald Green: #065f46 / Dark Blood Red: #7f1d1d — at 45% opacity
+      // Dark Emerald Green: rgba(6,95,70,0.60) / Dark Blood Red: rgba(127,29,29,0.60)
       ctx.fillStyle = isAbove
-        ? "rgba(6,95,70,0.45)" // Dark Emerald Green ~45% opacity
-        : "rgba(127,29,29,0.45)"; // Dark Blood Red ~45% opacity
+        ? "rgba(6,95,70,0.60)" // Dark Emerald Green 60% opacity
+        : "rgba(127,29,29,0.60)"; // Dark Blood Red 60% opacity
       ctx.fillRect(x, yTop, gap, yBot - yTop);
     }
 
-    // ── VERSION 102: Upper band — thicker border (linewidth=2) ───────────────
+    // ── Upper band — thick border (linewidth=2) ───────────────────────────────
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < n; i++) {
@@ -202,7 +201,7 @@ export function SFICanvasOverlay({
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // ── VERSION 102: Lower band — thicker border (linewidth=2) ───────────────
+    // ── Lower band — thick border (linewidth=2) ───────────────────────────────
     ctx.beginPath();
     started = false;
     for (let i = 0; i < n; i++) {
@@ -242,7 +241,7 @@ export function SFICanvasOverlay({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // ── EMA 200 — high contrast gray so it's visible over the dark cloud ─────
+    // ── EMA 200 — high contrast gray, visible over dark cloud ─────────────────
     ctx.beginPath();
     let started200 = false;
     for (let i = 0; i < n; i++) {
@@ -257,61 +256,11 @@ export function SFICanvasOverlay({
         started200 = true;
       } else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "rgba(209,213,219,0.9)"; // High-contrast gray, fully visible
+    ctx.strokeStyle = "rgba(209,213,219,0.9)";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    // ── Supply / Demand Zones ────────────────────────────────────────────────
-    const lookback = 5;
-    const pivotHighs: number[] = [];
-    const pivotLows: number[] = [];
-    for (let i = lookback; i < n; i++) {
-      const c = display[i];
-      let isHigh = true;
-      let isLow = true;
-      for (let j = i - lookback; j <= i - 1; j++) {
-        if (display[j].high >= c.high) isHigh = false;
-        if (display[j].low <= c.low) isLow = false;
-      }
-      if (isHigh) pivotHighs.push(c.high);
-      if (isLow) pivotLows.push(c.low);
-    }
-
-    // Draw Supply zones (red)
-    const supplyZones = pivotHighs.slice(-3);
-    for (const ph of supplyZones) {
-      const zoneH = ph * 0.001;
-      const y1 = yScale(ph + zoneH);
-      const y2 = yScale(ph - zoneH);
-      ctx.fillStyle = "rgba(239,68,68,0.18)";
-      ctx.fillRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.strokeStyle = "rgba(239,68,68,0.6)";
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.fillStyle = "rgba(252,165,165,0.9)";
-      ctx.font = "bold 9px monospace";
-      ctx.textAlign = "left";
-      ctx.fillText("SUPPLY", PAD_LEFT + 4, y1 + 9);
-    }
-
-    // Draw Demand zones (green)
-    const demandZones = pivotLows.slice(-3);
-    for (const pl of demandZones) {
-      const zoneH = pl * 0.001;
-      const y1 = yScale(pl + zoneH);
-      const y2 = yScale(pl - zoneH);
-      ctx.fillStyle = "rgba(34,197,94,0.18)";
-      ctx.fillRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.strokeStyle = "rgba(34,197,94,0.6)";
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(PAD_LEFT, y1, chartW, y2 - y1);
-      ctx.fillStyle = "rgba(134,239,172,0.9)";
-      ctx.font = "bold 9px monospace";
-      ctx.textAlign = "left";
-      ctx.fillText("DEMAND", PAD_LEFT + 4, y2 - 2);
-    }
 
     // ── Candlestick bars ─────────────────────────────────────────────────────
     const BUY_COLOR = "#22c55e";
@@ -461,7 +410,7 @@ export function SFICanvasOverlay({
             style={{ backgroundColor: hasData ? "#22c55e" : "#6b7280" }}
           />
           <span className="text-xs font-mono font-semibold text-foreground/80">
-            SFI Cloud v102 — {asset} {timeframe}
+            SFI Engine — {asset} {timeframe}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -508,35 +457,32 @@ export function SFICanvasOverlay({
         />
       </div>
 
-      {/* Zone legend */}
+      {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-t border-border/20 bg-black/10">
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
             className="w-3 h-2 rounded-sm"
             style={{
-              background: "rgba(239,68,68,0.3)",
-              border: "1px solid rgba(239,68,68,0.5)",
+              background: "rgba(6,95,70,0.7)",
+              border: "1.5px solid rgba(16,185,129,0.9)",
             }}
           />
-          <span className="text-muted-foreground">Supply</span>
+          <span className="text-muted-foreground">Bullish Cloud</span>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
             className="w-3 h-2 rounded-sm"
             style={{
-              background: "rgba(34,197,94,0.3)",
-              border: "1px solid rgba(34,197,94,0.5)",
+              background: "rgba(127,29,29,0.7)",
+              border: "1.5px solid rgba(220,38,38,0.9)",
             }}
           />
-          <span className="text-muted-foreground">Demand</span>
+          <span className="text-muted-foreground">Bearish Cloud</span>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] font-mono">
           <span
             className="w-5 h-0.5"
-            style={{
-              background: "rgba(209,213,219,0.9)",
-              borderTop: "1.5px dashed rgba(209,213,219,0.9)",
-            }}
+            style={{ borderTop: "1.5px dashed rgba(209,213,219,0.9)" }}
           />
           <span className="text-muted-foreground">EMA 200</span>
         </div>
