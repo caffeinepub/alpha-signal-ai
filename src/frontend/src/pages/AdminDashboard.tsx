@@ -25,7 +25,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useActor } from "@/hooks/useActor";
+import { useAdminGate } from "@/hooks/useAdminGate";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Activity,
   AlertTriangle,
@@ -34,6 +36,7 @@ import {
   Circle,
   ExternalLink,
   Eye,
+  LogOut,
   Monitor,
   Search,
   Shield,
@@ -112,6 +115,8 @@ function loadUsers(): StoredUser[] {
 export default function AdminDashboard() {
   const { actor } = useActor();
   const { user } = useAuth();
+  const { lockAdmin } = useAdminGate();
+  const navigate = useNavigate();
   const currentDevice = getDeviceType(navigator.userAgent);
 
   // Load users from localStorage
@@ -217,27 +222,44 @@ export default function AdminDashboard() {
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Shield className="w-5 h-5 text-hold" />
             Admin Dashboard
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-bold font-mono uppercase tracking-wider">
+              <Shield className="w-3 h-3" /> ADMIN LOCKED
+            </span>
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Logged in as{" "}
             <span className="text-foreground font-medium">{user?.name}</span>
           </p>
         </div>
-        <Badge
-          variant="outline"
-          className="border-bull/40 text-bull bg-bull/10 font-mono text-[10px] gap-1"
-        >
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
-          </span>
-          {activeSessions} Active Sessions
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className="border-bull/40 text-bull bg-bull/10 font-mono text-[10px] gap-1"
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
+            </span>
+            {activeSessions} Active Sessions
+          </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            data-ocid="admin.lock_session.button"
+            onClick={() => {
+              lockAdmin();
+              navigate({ to: "/" });
+            }}
+            className="h-7 px-3 text-[10px] font-mono border-amber-500/40 text-amber-400 hover:bg-amber-500/10 gap-1.5"
+          >
+            <LogOut className="w-3 h-3" /> Lock Session
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}

@@ -129,7 +129,7 @@ const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
   component: () => (
-    <ProtectedRoute>
+    <ProtectedRoute requiredRole="admin">
       <AdminDashboard />
     </ProtectedRoute>
   ),

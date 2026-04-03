@@ -1,4 +1,4 @@
-import { Flame } from "lucide-react";
+import { Flame, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 import type { LiquidationState } from "../hooks/useLiquidationData";
 
@@ -28,6 +28,7 @@ export function LiquidationCascadePanel({ state }: Props) {
     liquidationBias,
     isConnected,
     statusMessage,
+    isSimulated,
   } = state;
 
   const total = longLiquidations + shortLiquidations;
@@ -66,6 +67,12 @@ export function LiquidationCascadePanel({ state }: Props) {
           <span className="text-xs font-semibold text-muted-foreground">
             BTC Liquidation Cascade
           </span>
+          {/* Simulated badge in header */}
+          {isSimulated && !isZero && (
+            <span className="text-[8px] font-mono text-muted-foreground/50 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30">
+              [SIMULATED DATA]
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span
@@ -87,19 +94,24 @@ export function LiquidationCascadePanel({ state }: Props) {
         </div>
       </div>
 
-      {/* Zero state */}
+      {/* Zero state — Syncing spinner */}
       {isZero ? (
-        <div className="flex flex-col items-center justify-center py-4 text-center">
-          <Flame className="w-6 h-6 text-muted-foreground/30 mb-2" />
-          <p className="text-xs text-muted-foreground">
-            Monitoring liquidations...
+        <div className="flex flex-col items-center justify-center py-4 text-center gap-2">
+          <Loader2 className="w-5 h-5 text-muted-foreground/50 animate-spin" />
+          <p className="text-xs font-semibold text-muted-foreground">
+            Syncing...
           </p>
-          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+          <p className="text-[10px] text-muted-foreground/60">
             {statusMessage ??
               (isConnected
                 ? "Connected — waiting for events"
                 : "Connecting to Binance futures stream")}
           </p>
+          {isSimulated && (
+            <p className="text-[9px] text-muted-foreground/40 font-mono">
+              (simulated)
+            </p>
+          )}
         </div>
       ) : (
         <>
@@ -178,7 +190,9 @@ export function LiquidationCascadePanel({ state }: Props) {
           1-hour rolling window
         </span>
         <span
-          className={`text-[9px] font-mono ${isConnected ? "text-bull" : "text-muted-foreground"}`}
+          className={`text-[9px] font-mono ${
+            isConnected ? "text-bull" : "text-muted-foreground"
+          }`}
         >
           {isConnected ? "LIVE" : "OFFLINE"}
         </span>

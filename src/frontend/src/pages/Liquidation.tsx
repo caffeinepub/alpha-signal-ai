@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, Flame } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Flame, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -13,9 +13,41 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useLiquidationData, useMarketData } from "../hooks/useQueries";
+import { useLiquidationData } from "../hooks/useLiquidationData";
 
-const ASSETS = ["BTC", "XAU"];
+const ASSETS = ["BTC"];
+const FALLBACK_BTC_PRICE = 95000;
+const NUM_BUCKETS = 10;
+const PRICE_RANGE_PCT = 0.05; // ±5%
+
+// ── BTC price helper ──────────────────────────────────────────────────────────────────────
+
+function useBtcPrice() {
+  const [price, setPrice] = useState(FALLBACK_BTC_PRICE);
+  useEffect(() => {
+    fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+      .then((r) => r.json())
+      .then((d) => {
+        const p = Number.parseFloat(d.price);
+        if (Number.isFinite(p) && p > 0) setPrice(p);
+      })
+      .catch(() => {
+        // keep fallback
+      });
+  }, []);
+  return price;
+}
+
+// ── Bell-curve distribution helper ──────────────────────────────────────────────────────────
+
+function bellWeight(idx: number, total: number): number {
+  const center = (total - 1) / 2;
+  const sigma = total / 4;
+  const x = idx - center;
+  return Math.exp(-(x * x) / (2 * sigma * sigma));
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────────────────
 
 function MarketPressureIndicator({
   totalLongs,
@@ -118,13 +150,16 @@ const CustomTooltip = ({
 }: {
   active?: boolean;
   payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string;
+  label?: string | number;
 }) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-popover border border-border rounded-lg p-3 text-xs shadow-xl">
         <div className="font-mono font-bold text-foreground mb-2">
-          ${Number(label).toLocaleString("en-US", { minimumFractionDigits: 0 })}
+          $
+          {Number(label).toLocaleString("en-US", {
+            minimumFractionDigits: 0,
+          })}
         </div>
         {payload.map((p) => (
           <div key={p.name} className="flex items-center gap-2">
@@ -144,37 +179,51 @@ const CustomTooltip = ({
   return null;
 };
 
+// ── Main Page ────────────────────────────────────────────────────────────────────────────
+
 export default function Liquidation() {
   const [selectedAsset, setSelectedAsset] = useState("BTC");
-  const { data: liqData, isLoading } = useLiquidationData(selectedAsset);
-  const { data: marketData } = useMarketData();
+  const liqState = useLiquidationData();
+  const currentPrice = useBtcPrice();
 
-  const currentPrice =
-    marketData?.find((m) => m.symbol === selectedAsset)?.price || 0;
+  const {
+    longLiquidations,
+    shortLiquidations,
+    isConnected,
+    statusMessage,
+    isSimulated,
+  } = liqState;
 
+  // Build synthetic heatmap chart from long/short totals distributed across price buckets
   const chartData = useMemo(() => {
-    if (!liqData) return [];
-    return [...liqData]
-      .sort((a, b) => a.priceLevel - b.priceLevel)
-      .map((zone) => ({
-        priceLevel: zone.priceLevel,
-        longLiquidations: zone.longLiquidations,
-        shortLiquidations: zone.shortLiquidations,
-        intensity: Number(zone.intensity),
-        label: zone.priceLevel.toLocaleString("en-US", {
-          minimumFractionDigits: 0,
-        }),
-      }));
-  }, [liqData]);
+    const priceMin = currentPrice * (1 - PRICE_RANGE_PCT);
+    const priceMax = currentPrice * (1 + PRICE_RANGE_PCT);
+    const step = (priceMax - priceMin) / (NUM_BUCKETS - 1);
 
-  const totalLongs = useMemo(
-    () => liqData?.reduce((sum, z) => sum + z.longLiquidations, 0) || 0,
-    [liqData],
-  );
-  const totalShorts = useMemo(
-    () => liqData?.reduce((sum, z) => sum + z.shortLiquidations, 0) || 0,
-    [liqData],
-  );
+    // Bell-curve weights (more liquidations concentrated near current price)
+    const weights = Array.from({ length: NUM_BUCKETS }, (_, i) =>
+      bellWeight(i, NUM_BUCKETS),
+    );
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+
+    return weights.map((w, i) => {
+      const priceLevel = priceMin + i * step;
+      const share = w / totalWeight;
+      return {
+        priceLevel: Math.round(priceLevel),
+        longLiquidations: longLiquidations * share,
+        shortLiquidations: shortLiquidations * share,
+        label:
+          priceLevel >= 1000
+            ? `$${(priceLevel / 1000).toFixed(1)}K`
+            : `$${priceLevel.toFixed(0)}`,
+      };
+    });
+  }, [longLiquidations, shortLiquidations, currentPrice]);
+
+  const totalLongs = longLiquidations;
+  const totalShorts = shortLiquidations;
+  const hasData = longLiquidations + shortLiquidations > 0;
 
   const formatLiq = (v: number) => {
     if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
@@ -182,9 +231,10 @@ export default function Liquidation() {
     return `$${v.toFixed(0)}`;
   };
 
-  const formatPrice = (v: number) => {
-    if (v >= 1000) return `$${(v / 1000).toFixed(1)}K`;
-    return `$${v.toFixed(0)}`;
+  const formatPrice = (v: number | string) => {
+    const n = Number(v);
+    if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
+    return `$${n.toFixed(0)}`;
   };
 
   return (
@@ -196,65 +246,109 @@ export default function Liquidation() {
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
             Liquidation Heatmap
           </span>
+          {isSimulated && (
+            <span className="text-[9px] font-mono text-muted-foreground/50 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30">
+              [SIMULATED DATA]
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-1 bg-secondary rounded-lg p-1">
-          {ASSETS.map((asset) => (
-            <button
-              key={asset}
-              type="button"
-              data-ocid={`liquidation.${asset.toLowerCase()}.tab`}
-              onClick={() => setSelectedAsset(asset)}
-              className={`px-4 py-1.5 rounded-md text-xs font-semibold font-mono transition-all duration-200 ${
-                selectedAsset === asset
-                  ? "bg-primary text-primary-foreground glow-cyan"
-                  : "text-muted-foreground hover:text-foreground"
+        <div className="flex items-center gap-2">
+          {/* Connection status */}
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              {isConnected ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-bull" />
+                </>
+              ) : (
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-muted-foreground" />
+              )}
+            </span>
+            <span
+              className={`text-[10px] font-mono ${
+                isConnected ? "text-bull" : "text-muted-foreground"
               }`}
             >
-              {asset}
-            </button>
-          ))}
+              {isConnected ? "Connected" : "Syncing..."}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-secondary rounded-lg p-1">
+            {ASSETS.map((asset) => (
+              <button
+                key={asset}
+                type="button"
+                data-ocid={`liquidation.${asset.toLowerCase()}.tab`}
+                onClick={() => setSelectedAsset(asset)}
+                className={`px-4 py-1.5 rounded-md text-xs font-semibold font-mono transition-all duration-200 ${
+                  selectedAsset === asset
+                    ? "bg-primary text-primary-foreground glow-cyan"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {asset}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Current price badge */}
-      {currentPrice > 0 && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            Current {selectedAsset} price:
-          </span>
+      {/* Status message */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-mono text-muted-foreground/70">
+          {statusMessage}
+        </span>
+        {currentPrice > 0 && (
           <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/30">
-            $
+            BTC: $
             {currentPrice.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
             })}
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Main Chart */}
       <div className="trading-card p-4">
-        <div className="flex items-center gap-4 mb-4 text-xs">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm bg-bear/70" />
-            <span className="text-muted-foreground">Long Liquidations</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-sm bg-bull/70" />
-            <span className="text-muted-foreground">Short Liquidations</span>
-          </div>
-          {currentPrice > 0 && (
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm bg-bear/70" />
+              <span className="text-muted-foreground">Long Liquidations</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm bg-bull/70" />
+              <span className="text-muted-foreground">Short Liquidations</span>
+            </div>
             <div className="flex items-center gap-1.5">
               <div className="w-4 h-px border-t-2 border-dashed border-primary" />
               <span className="text-muted-foreground">Current Price</span>
             </div>
-          )}
+          </div>
         </div>
 
-        {isLoading ? (
-          <Skeleton className="w-full h-80 bg-secondary" />
-        ) : chartData.length > 0 ? (
+        {!hasData ? (
+          <div
+            className="h-80 flex flex-col items-center justify-center text-muted-foreground gap-3"
+            data-ocid="liquidation.loading_state"
+          >
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground/40" />
+            <div className="text-center">
+              <p className="text-sm font-semibold">Syncing...</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                {statusMessage}
+              </p>
+              {isSimulated && (
+                <p className="text-[10px] text-muted-foreground/40 mt-1 font-mono">
+                  (simulated data loading)
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
           <ResponsiveContainer width="100%" height={320}>
             <BarChart
               data={chartData}
@@ -284,27 +378,18 @@ export default function Liquidation() {
                 width={50}
               />
               <Tooltip content={<CustomTooltip />} />
-              {currentPrice > 0 && (
-                <ReferenceLine
-                  x={
-                    chartData.reduce((prev, curr) =>
-                      Math.abs(curr.priceLevel - currentPrice) <
-                      Math.abs(prev.priceLevel - currentPrice)
-                        ? curr
-                        : prev,
-                    ).priceLevel
-                  }
-                  stroke="oklch(0.70 0.18 220)"
-                  strokeWidth={2}
-                  strokeDasharray="5 3"
-                  label={{
-                    value: "Current",
-                    fill: "oklch(0.70 0.18 220)",
-                    fontSize: 9,
-                    position: "top",
-                  }}
-                />
-              )}
+              <ReferenceLine
+                x={Math.round(currentPrice)}
+                stroke="oklch(0.70 0.18 220)"
+                strokeWidth={2}
+                strokeDasharray="5 3"
+                label={{
+                  value: "Current",
+                  fill: "oklch(0.70 0.18 220)",
+                  fontSize: 9,
+                  position: "top",
+                }}
+              />
               <Bar
                 dataKey="longLiquidations"
                 name="Long Liquidations"
@@ -321,13 +406,6 @@ export default function Liquidation() {
               />
             </BarChart>
           </ResponsiveContainer>
-        ) : (
-          <div
-            className="h-80 flex items-center justify-center text-muted-foreground text-sm"
-            data-ocid="liquidation.empty_state"
-          >
-            No liquidation data available
-          </div>
         )}
       </div>
 

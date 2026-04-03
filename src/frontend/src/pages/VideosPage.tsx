@@ -1,5 +1,6 @@
 import { VideoDifficulty } from "@/backend";
 import { useActor } from "@/hooks/useActor";
+import { useAdminGate } from "@/hooks/useAdminGate";
 import { cn } from "@/lib/utils";
 import {
   BookOpen,
@@ -36,6 +37,7 @@ interface VideoItem {
   category: Category;
   uploadedAt: number; // ms timestamp
   isLocal?: boolean; // stored in localStorage
+  uploadedBy?: string;
 }
 
 // ─── YouTube helpers ──────────────────────────────────────────────────────────
@@ -224,6 +226,7 @@ function saveLocalVideos(videos: VideoItem[]) {
 
 export default function VideosPage() {
   const { actor } = useActor();
+  const { isAdminVerified } = useAdminGate();
 
   const [allVideos, setAllVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -353,6 +356,7 @@ export default function VideosPage() {
           : (addForm.category as Exclude<Category, "all">),
       uploadedAt: Date.now(),
       isLocal: true,
+      uploadedBy: "Master_Admin",
     };
 
     // Also try to persist in backend
@@ -437,14 +441,17 @@ export default function VideosPage() {
                 {allVideos.length} professional trading videos
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-sm font-medium"
-            >
-              <Sparkles className="w-4 h-4" />
-              Add Video
-            </button>
+            {isAdminVerified && (
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-sm font-medium"
+                data-ocid="videos.upload_button"
+              >
+                <Sparkles className="w-4 h-4" />
+                Add Video
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -561,6 +568,7 @@ export default function VideosPage() {
                 video={video}
                 onPlay={() => setPlayingVideo(video)}
                 onDelete={() => handleDelete(video)}
+                isAdmin={isAdminVerified}
               />
             ))}
           </div>
@@ -600,10 +608,12 @@ function VideoCard({
   video,
   onPlay,
   onDelete,
+  isAdmin,
 }: {
   video: VideoItem;
   onPlay: () => void;
   onDelete: () => void;
+  isAdmin?: boolean;
 }) {
   const [thumbError, setThumbError] = useState(false);
   const isNew = isNewVideo(video.uploadedAt);
@@ -660,17 +670,20 @@ function VideoCard({
           <h3 className="text-sm font-semibold text-white line-clamp-2 flex-1 leading-snug">
             {video.title}
           </h3>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="flex-shrink-0 p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-            title="Delete video"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="flex-shrink-0 p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Delete video"
+              data-ocid="videos.delete_button"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <p className="text-xs text-slate-400 line-clamp-2">

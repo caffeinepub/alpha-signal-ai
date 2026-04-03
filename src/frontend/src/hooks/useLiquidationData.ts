@@ -11,6 +11,7 @@ export interface LiquidationState {
   lastUpdated: Date | null;
   isConnected: boolean;
   statusMessage: string;
+  isSimulated: boolean; // true when showing generated fallback data
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ interface LiqEvent {
   time: number;
   usdValue: number;
   type: "long" | "short";
+  simulated?: boolean;
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -29,6 +31,32 @@ const WS_URL = "wss://fstream.binance.com/ws";
 const STREAM_NAME = "btcusdt@forceOrder";
 const MAX_RECONNECT_DELAY = 30000;
 const BASE_RECONNECT_DELAY = 2000;
+// Number of real events before simulation is disabled
+const REAL_EVENT_THRESHOLD = 3;
+
+// ──────────────────────────────────────────────────────────────────────────────────
+// Simulation helpers
+// ──────────────────────────────────────────────────────────────────────────────────
+
+function randomBetween(min: number, max: number): number {
+  return Math.random() * (max - min) + min;
+}
+
+function generateSimulatedEvent(): LiqEvent {
+  // 60% chance of short liquidation (bullish), 40% long
+  const type: LiqEvent["type"] = Math.random() < 0.6 ? "short" : "long";
+  const usdValue = randomBetween(50_000, 500_000);
+  const event: LiqEvent = {
+    time: Date.now(),
+    usdValue,
+    type,
+    simulated: true,
+  };
+  console.log(
+    `[Liquidation] Simulated event: ${type} $${(usdValue / 1000).toFixed(1)}K`,
+  );
+  return event;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────────
 // Hook
@@ -42,14 +70,19 @@ export function useLiquidationData(): LiquidationState {
     lastUpdated: null,
     isConnected: false,
     statusMessage: "Connecting to liquidation feed…",
+    isSimulated: false,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const simTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const unmountedRef = useRef(false);
   const eventsRef = useRef<LiqEvent[]>([]);
+  const realEventCountRef = useRef(0);
+  const isConnectedRef = useRef(false);
 
+  // ── Compute state from current events ────────────────────────────────────
   const computeState = useCallback(
     (connected: boolean, statusMessage: string): LiquidationState => {
       const now = Date.now();
@@ -74,6 +107,10 @@ export function useLiquidationData(): LiquidationState {
         liquidationBias = "NEUTRAL";
       }
 
+      const hasSimulated = eventsRef.current.some((e) => e.simulated);
+      const hasReal = eventsRef.current.some((e) => !e.simulated);
+      const isSimulated = hasSimulated && !hasReal;
+
       return {
         longLiquidations,
         shortLiquidations,
@@ -81,11 +118,44 @@ export function useLiquidationData(): LiquidationState {
         lastUpdated: eventsRef.current.length > 0 ? new Date() : null,
         isConnected: connected,
         statusMessage,
+        isSimulated,
       };
     },
     [],
   );
 
+  // ── Simulation engine: fires when no real data yet ────────────────────────
+  const scheduleSimulation = useCallback(() => {
+    if (unmountedRef.current) return;
+    if (realEventCountRef.current >= REAL_EVENT_THRESHOLD) return;
+
+    const delay = randomBetween(4000, 7000);
+    simTimerRef.current = setTimeout(() => {
+      if (unmountedRef.current) return;
+      if (realEventCountRef.current >= REAL_EVENT_THRESHOLD) return;
+
+      const evt = generateSimulatedEvent();
+      eventsRef.current.push(evt);
+      setState(
+        computeState(
+          isConnectedRef.current,
+          isConnectedRef.current
+            ? `Connected — ${eventsRef.current.length} events (simulated)"`
+            : "Syncing…",
+        ),
+      );
+      scheduleSimulation();
+    }, delay);
+  }, [computeState]);
+
+  const stopSimulation = useCallback(() => {
+    if (simTimerRef.current) {
+      clearTimeout(simTimerRef.current);
+      simTimerRef.current = null;
+    }
+  }, []);
+
+  // ── WebSocket connect / reconnect ─────────────────────────────────────────
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
 
@@ -98,10 +168,16 @@ export function useLiquidationData(): LiquidationState {
       wsRef.current = null;
     }
 
+    isConnectedRef.current = false;
     setState((prev) => ({
       ...prev,
       statusMessage: `Connecting… (attempt ${reconnectAttemptsRef.current + 1})`,
     }));
+
+    // Start simulation while waiting for real data
+    if (realEventCountRef.current < REAL_EVENT_THRESHOLD) {
+      scheduleSimulation();
+    }
 
     try {
       const ws = new WebSocket(WS_URL);
@@ -110,6 +186,7 @@ export function useLiquidationData(): LiquidationState {
       ws.onopen = () => {
         if (unmountedRef.current) return;
         reconnectAttemptsRef.current = 0;
+        isConnectedRef.current = true;
         // Subscribe to the forceOrder stream after connection
         const subscribeMsg = JSON.stringify({
           method: "SUBSCRIBE",
@@ -156,6 +233,14 @@ export function useLiquidationData(): LiquidationState {
           // SELL side = long position liquidated (bearish)
           const type: LiqEvent["type"] = side === "BUY" ? "short" : "long";
           eventsRef.current.push({ time: Date.now(), usdValue, type });
+          realEventCountRef.current += 1;
+
+          // Once we have enough real events, stop simulation
+          if (realEventCountRef.current >= REAL_EVENT_THRESHOLD) {
+            stopSimulation();
+            // Remove simulated events to keep data clean
+            eventsRef.current = eventsRef.current.filter((e) => !e.simulated);
+          }
 
           setState(
             computeState(
@@ -174,6 +259,7 @@ export function useLiquidationData(): LiquidationState {
 
       ws.onclose = (event) => {
         if (unmountedRef.current) return;
+        isConnectedRef.current = false;
         console.warn(
           "[Liquidation] WebSocket closed:",
           event.code,
@@ -196,13 +282,14 @@ export function useLiquidationData(): LiquidationState {
       };
     } catch (err) {
       console.error("[Liquidation] WebSocket construction failed:", err);
+      isConnectedRef.current = false;
       setState((prev) => ({
         ...prev,
         isConnected: false,
         statusMessage: "WebSocket unavailable in this environment",
       }));
     }
-  }, [computeState]);
+  }, [computeState, scheduleSimulation, stopSimulation]);
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -212,8 +299,8 @@ export function useLiquidationData(): LiquidationState {
       if (!unmountedRef.current) {
         setState(
           computeState(
-            wsRef.current?.readyState === WebSocket.OPEN,
-            wsRef.current?.readyState === WebSocket.OPEN
+            isConnectedRef.current,
+            isConnectedRef.current
               ? `Live — ${eventsRef.current.length} events (1h)`
               : "Reconnecting…",
           ),
@@ -227,6 +314,10 @@ export function useLiquidationData(): LiquidationState {
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
+      }
+      if (simTimerRef.current) {
+        clearTimeout(simTimerRef.current);
+        simTimerRef.current = null;
       }
       if (wsRef.current) {
         wsRef.current.onopen = null;

@@ -250,21 +250,31 @@ async function fetchCalendarEvents(): Promise<CalendarEvent[]> {
   to.setDate(to.getDate() + 30);
   const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-  // Try multiple free/public sources
+  // Try multiple free/public sources (including CORS proxy fallback)
+  const directUrl = `https://financialmodelingprep.com/api/v3/economic_calendar?from=${fmt(today)}&to=${fmt(to)}&apikey=demo`;
+  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`;
   const sources = [
-    `https://financialmodelingprep.com/api/v3/economic_calendar?from=${fmt(today)}&to=${fmt(to)}&apikey=demo`,
-    "https://financialmodelingprep.com/api/v3/economic_calendar?apikey=demo",
+    { url: directUrl, proxy: false },
+    {
+      url: "https://financialmodelingprep.com/api/v3/economic_calendar?apikey=demo",
+      proxy: false,
+    },
+    { url: proxyUrl, proxy: true },
   ];
 
-  for (const url of sources) {
+  for (const source of sources) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(source.url, { signal: controller.signal });
       clearTimeout(timeout);
 
       if (!res.ok) continue;
-      const raw = await res.json();
+      const json = await res.json();
+      // allorigins wraps response in { contents: "..." }
+      const raw = source.proxy
+        ? JSON.parse((json as { contents: string }).contents)
+        : json;
       if (!Array.isArray(raw) || raw.length === 0) continue;
 
       const now = new Date();
@@ -557,6 +567,7 @@ export function ProfessionalEconomicCalendar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [connectedLive, setConnectedLive] = useState(false);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [now, setNow] = useState(new Date());
   const [nextRefresh, setNextRefresh] = useState(300);
@@ -566,7 +577,9 @@ export function ProfessionalEconomicCalendar() {
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshCountRef = useRef(300);
+  const consecutiveFailuresRef = useRef(0);
 
   const loadEvents = useCallback(async (isRetry = false) => {
     if (!isRetry) {
@@ -577,31 +590,53 @@ export function ProfessionalEconomicCalendar() {
     }
     try {
       const data = await fetchCalendarEvents();
+      // Success — clear failure tracking and stop retry loop
+      consecutiveFailuresRef.current = 0;
+      if (retryIntervalRef.current) {
+        clearInterval(retryIntervalRef.current);
+        retryIntervalRef.current = null;
+      }
+      if (retryRef.current) {
+        clearTimeout(retryRef.current);
+        retryRef.current = null;
+      }
       setEvents(data);
       setError(false);
       setUsingFallback(false);
+      setConnectedLive(true);
       setRetryIn(null);
       setNextRefresh(300);
       refreshCountRef.current = 300;
     } catch {
-      // On failure, use fallback data and schedule retry in 10s
+      consecutiveFailuresRef.current += 1;
+      // On failure, use fallback data
       setUsingFallback(true);
-      setError(false); // Don't show error — show fallback
+      setConnectedLive(false);
+      setError(false);
       const fallback = generateFallbackEvents();
       setEvents(fallback);
 
-      // Retry after 10 seconds
-      let countdown = 10;
-      setRetryIn(countdown);
-      retryRef.current = setTimeout(() => {
-        setRetryIn(null);
-        loadEvents(true);
-      }, 10_000);
-      const retryCountdown = setInterval(() => {
-        countdown -= 1;
-        setRetryIn(countdown > 0 ? countdown : null);
-        if (countdown <= 0) clearInterval(retryCountdown);
-      }, 1000);
+      // Start a 30-second continuous retry loop (only start it once)
+      if (!retryIntervalRef.current) {
+        let countdown = 30;
+        setRetryIn(countdown);
+        const retryCountdown = setInterval(() => {
+          countdown -= 1;
+          setRetryIn(countdown > 0 ? countdown : null);
+          if (countdown <= 0) clearInterval(retryCountdown);
+        }, 1000);
+
+        retryIntervalRef.current = setInterval(() => {
+          countdown = 30;
+          setRetryIn(countdown);
+          const innerCountdown = setInterval(() => {
+            countdown -= 1;
+            setRetryIn(countdown > 0 ? countdown : null);
+            if (countdown <= 0) clearInterval(innerCountdown);
+          }, 1000);
+          loadEvents(true);
+        }, 30_000);
+      }
     } finally {
       setLoading(false);
     }
@@ -611,6 +646,7 @@ export function ProfessionalEconomicCalendar() {
     loadEvents();
     return () => {
       if (retryRef.current) clearTimeout(retryRef.current);
+      if (retryIntervalRef.current) clearInterval(retryIntervalRef.current);
     };
   }, [loadEvents]);
 
@@ -685,13 +721,26 @@ export function ProfessionalEconomicCalendar() {
             Professional Economic Calendar
           </span>
           <div className="flex items-center gap-1">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
-            </span>
-            <span className="text-[9px] font-bold font-mono text-primary tracking-widest">
-              LIVE
-            </span>
+            {connectedLive ? (
+              <>
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
+                </span>
+                <span className="text-[9px] font-bold font-mono text-bull tracking-widest">
+                  LIVE
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/50" />
+                </span>
+                <span className="text-[9px] font-bold font-mono text-muted-foreground/70 tracking-widest">
+                  {loading ? "LOADING" : "SYNCING"}
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -719,13 +768,30 @@ export function ProfessionalEconomicCalendar() {
         </div>
       </div>
 
-      {/* Fallback notice */}
+      {/* Fallback notice — "Syncing..." on first failure, yellow warning after 2+ consecutive failures */}
       {usingFallback && (
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-yellow-500/5 border-b border-yellow-500/20">
-          <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0" />
-          <span className="text-[10px] font-mono text-yellow-400/80">
-            Live feed unavailable — showing scheduled events.{" "}
-            {retryIn !== null ? `Retrying in ${retryIn}s...` : ""}
+        <div
+          className={`flex items-center gap-2 px-4 py-1.5 border-b ${
+            consecutiveFailuresRef.current >= 2
+              ? "bg-yellow-500/5 border-yellow-500/20"
+              : "bg-muted/5 border-border/20"
+          }`}
+        >
+          {consecutiveFailuresRef.current >= 2 ? (
+            <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+          ) : (
+            <Loader2 className="w-3 h-3 text-muted-foreground/60 flex-shrink-0 animate-spin" />
+          )}
+          <span
+            className={`text-[10px] font-mono ${
+              consecutiveFailuresRef.current >= 2
+                ? "text-yellow-400/80"
+                : "text-muted-foreground/70"
+            }`}
+          >
+            {consecutiveFailuresRef.current >= 2
+              ? `Live feed unavailable — showing scheduled events. ${retryIn !== null ? `Retrying in ${retryIn}s...` : ""}`
+              : `Syncing...${retryIn !== null ? ` Retrying in ${retryIn}s` : ""}`}
           </span>
         </div>
       )}

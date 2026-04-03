@@ -1,37 +1,33 @@
-# Alpha Signal AI — Pine Script Sync Update
+# Alpha Signal AI
 
 ## Current State
-- SFI engine uses hlc3-based volatility bands (Basis ± smoothVol × 2.0), trend state machine, and fixed SL rules
-- EUR/USD SL is currently 0.003 (30 pips) — should be 15 pips (0.0015)
-- Gemini uses `models/gemini-1.5-pro-latest` with `v1beta` endpoint (already correct)
-- Market Movers uses Binance 24h API via `useTopGainers`/`useTopLosers`
-- Liquidation uses `wss://fstream.binance.com/ws` WebSocket
-- Charts page has TradingView widget + SignalChartOverlay (Recharts line chart with buy/sell markers)
-- No canvas overlay showing Supply/Demand zones or EMA cloud on the Charts page
+- `/admin` route is open to everyone — ProtectedRoute is a passthrough, no auth check
+- AdminDashboard shows all sections (User Management, Affiliate Stats, System Status, Login Activity) to any visitor
+- Videos page "Add Video" button is visible and functional for everyone
+- No 2FA or secret key gate exists
+- `useAuth` always returns ADMIN_USER unconditionally
 
 ## Requested Changes (Diff)
 
 ### Add
-- `SFICanvasOverlay.tsx` — new Canvas-based chart component for the Charts page:
-  - Draws candlestick bars from real Binance OHLC data
-  - Supply zones (red boxes) from pivot highs (ta.pivothigh equivalent: 5-bar lookback)
-  - Demand zones (green boxes) from pivot lows (ta.pivotlow equivalent: 5-bar lookback)
-  - BUY/SELL text labels on candles where SFI trend flips
-  - EMA cloud: renders the Basis line and Upper/Lower bands as a shaded cloud overlay
-  - Asset selector (BTC, XAU/USD, EUR/USD) matches Charts page selection
-  - Timeframe (3m/15m) matching the selected asset's candle data
+- `useAdminGate` hook: stores admin session in sessionStorage (tab-scoped); exports `isAdminVerified`, `verifyAdmin(email, secretKey)`, `lockAdmin()`
+- `AdminGate.tsx` component: full-screen lock screen shown to anyone hitting `/admin` who hasn't passed 2FA. Requires email = `prakash.brjn01@gmail.com` AND Admin Secret Key = `AlphaSignal2024!`. On wrong credentials: shows "Access Denied" error. On success: grants session, reveals dashboard.
+- `Master_Admin` flag: all localStorage video entries include `uploadedBy: 'Master_Admin'` when added by the verified admin session
+- Non-admin access to `/admin`: immediate redirect to `/` (home)
 
 ### Modify
-- `useSFIEngine.ts`: Change EUR/USD fixed SL from 0.003 → 0.0015 (15 pips)
-- `Charts.tsx`: Replace old SignalChartOverlay with new SFICanvasOverlay below TradingView widget
-  - Pass candle data and SFI signals to the canvas component
+- `ProtectedRoute.tsx`: when `requiredRole === 'admin'`, check `useAdminGate` — if not verified, render `<AdminGate />` (not a redirect, so the gate is shown inline; the URL stays /admin)
+- `AdminDashboard.tsx`: wrap entire content in admin-gate check; add lock icon header showing "ADMIN LOCKED" badge; Affiliate Click Stats and System Status sections only rendered when verified
+- `VideosPage.tsx`: "Add Video" button only shown when `useAdminGate().isAdminVerified` is true
+- `App.tsx`: pass `requiredRole="admin"` to the `/admin` ProtectedRoute
 
 ### Remove
-- Old `SignalChartOverlay.tsx` usage in Charts (replaced by canvas version)
+- No changes to Gold price system, market data, SFI engine, or any other modules
 
 ## Implementation Plan
-1. Fix EUR/USD SL in `useSFIEngine.ts`
-2. Create `SFICanvasOverlay.tsx` — canvas chart with pivot zones, BUY/SELL labels, EMA cloud
-3. Update `Charts.tsx` to import and use `SFICanvasOverlay` with correct candle data
-4. Verify Gemini model string is correct (`models/gemini-1.5-pro-latest`, `v1beta` endpoint)
-5. Validate build
+1. Create `src/hooks/useAdminGate.ts` — sessionStorage-based gate with hardcoded credentials
+2. Create `src/components/AdminGate.tsx` — 2FA lock screen UI (dark themed, matching glassmorphism style)
+3. Update `ProtectedRoute.tsx` — check `requiredRole` prop and render gate when needed
+4. Update `App.tsx` — add `requiredRole="admin"` to admin route
+5. Update `AdminDashboard.tsx` — add admin badge header, keep all sections gated
+6. Update `VideosPage.tsx` — hide Add Video button for non-verified users
