@@ -5,10 +5,12 @@ import type { SFISignal } from "./useSFIEngine";
 
 // Cache key = `${asset}:${signal}:${Math.floor(price/100)}`
 // This prevents hammering the API on every candle tick.
-// Cache TTL = 3 minutes.
+// Cache TTL = 5 minutes.
 
-const CACHE_TTL_MS = 3 * 60 * 1000;
-const REFETCH_INTERVAL_MS = 3 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const REFETCH_INTERVAL_MS = 5 * 60 * 1000;
+// Minimum gap between consecutive API calls (60 seconds)
+const MIN_FETCH_GAP_MS = 60 * 1000;
 
 interface CacheEntry {
   result: GeminiInstitutionalBias;
@@ -28,10 +30,11 @@ export interface GeminiConfirmationState {
   data: GeminiInstitutionalBias | null;
   loading: boolean;
   error: string | null;
+  rateLimited: boolean;
 }
 
 // Hook: fetches Gemini institutional bias once per signal state change.
-// Updates every 3 minutes in the background.
+// Rate-limited: minimum 60s between calls, debounced to prevent retry loops.
 export function useGeminiConfirmation(
   signal: SFISignal | undefined,
 ): GeminiConfirmationState {
@@ -39,20 +42,48 @@ export function useGeminiConfirmation(
     data: null,
     loading: false,
     error: null,
+    rateLimited: false,
   });
 
   const lastKeyRef = useRef<string | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+  // Ref mirror of loading state so useCallback doesn't need loading in deps
+  const isLoadingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetch = useCallback(async (sig: SFISignal) => {
-    const key = makeCacheKey(sig.asset, sig.signal, sig.entry);
-    const cached = biasCache.get(key);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      setState({ data: cached.result, loading: false, error: null });
+  const fetchBias = useCallback(async (sig: SFISignal) => {
+    // Rate limit: don't fire if another fetch is in progress
+    if (isLoadingRef.current) return;
+
+    // Rate limit: enforce minimum 60s between fetches
+    const now = Date.now();
+    const elapsed = now - lastFetchTimeRef.current;
+    if (elapsed < MIN_FETCH_GAP_MS && lastFetchTimeRef.current > 0) {
+      setState((prev) => ({ ...prev, rateLimited: true }));
       return;
     }
 
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    const key = makeCacheKey(sig.asset, sig.signal, sig.entry);
+    const cached = biasCache.get(key);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      setState({
+        data: cached.result,
+        loading: false,
+        error: null,
+        rateLimited: false,
+      });
+      return;
+    }
+
+    lastFetchTimeRef.current = now;
+    isLoadingRef.current = true;
+    setState((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+      rateLimited: false,
+    }));
     try {
       const result = await callGeminiInstitutionalBias(
         sig.asset,
@@ -61,13 +92,26 @@ export function useGeminiConfirmation(
         sig.rsi,
       );
       biasCache.set(key, { result, timestamp: Date.now() });
-      setState({ data: result, loading: false, error: null });
+      isLoadingRef.current = false;
+      setState({
+        data: result,
+        loading: false,
+        error: null,
+        rateLimited: false,
+      });
     } catch (_err) {
+      isLoadingRef.current = false;
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: "Confirmation unavailable",
+        error: "AI connection retrying...",
+        rateLimited: false,
       }));
+      // Wait 60 seconds before allowing retry after an error
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        lastFetchTimeRef.current = 0; // reset rate limit so next trigger can retry
+      }, MIN_FETCH_GAP_MS);
     }
   }, []);
 
@@ -79,19 +123,20 @@ export function useGeminiConfirmation(
     // Trigger a new fetch when signal state changes
     if (key !== lastKeyRef.current) {
       lastKeyRef.current = key;
-      fetch(signal);
+      fetchBias(signal);
     }
 
-    // Background refresh every 3 minutes
+    // Background refresh every 5 minutes
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
-      if (signal) fetch(signal);
+      if (signal) fetchBias(signal);
     }, REFETCH_INTERVAL_MS);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
-  }, [signal, fetch]);
+  }, [signal, fetchBias]);
 
   return state;
 }

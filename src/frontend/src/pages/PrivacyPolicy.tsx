@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+
 export default function PrivacyPolicy() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 text-foreground">
@@ -129,12 +131,19 @@ export default function PrivacyPolicy() {
         </p>
       </section>
 
-      <div className="mt-10 pt-6 border-t border-border text-center text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Alpha Signal AI · All analysis is for
-        educational purposes only ·{" "}
+      <div className="mt-10 pt-6 border-t border-border text-center text-xs text-muted-foreground space-x-2">
+        <span>
+          © {new Date().getFullYear()} Alpha Signal AI · All analysis is for
+          educational purposes only
+        </span>
+        <span>·</span>
         <a href="/privacy-policy" className="text-primary hover:underline">
           Privacy Policy
         </a>
+        <span>·</span>
+        <Link to="/terms" className="text-primary hover:underline">
+          Terms of Service
+        </Link>
       </div>
     </div>
   );

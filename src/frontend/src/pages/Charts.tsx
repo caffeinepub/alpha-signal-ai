@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { SFICanvasOverlay } from "../components/SFICanvasOverlay";
 import { useBinanceKlines } from "../hooks/useBinanceKlines";
 import { useEURUSD } from "../hooks/useEURUSD";
-import { useSFIEngine } from "../hooks/useSFIEngine";
+import { useSFIEngineLegacy as useSFIEngine } from "../hooks/useSFIEngine";
 import type { EngineSignal } from "../hooks/useSignalEngine";
 import { useSignalEngine } from "../hooks/useSignalEngine";
 

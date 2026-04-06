@@ -16,10 +16,12 @@ import Charts from "./pages/Charts";
 import ChatPage from "./pages/ChatPage";
 import Dashboard from "./pages/Dashboard";
 import Liquidation from "./pages/Liquidation";
+import LoginPage from "./pages/LoginPage";
 import Performance from "./pages/Performance";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Research from "./pages/Research";
 import Signals from "./pages/Signals";
+import TermsOfService from "./pages/TermsOfService";
 import VideosPage from "./pages/VideosPage";
 
 const PAGE_META: Record<string, { title: string }> = {
@@ -33,16 +35,26 @@ const PAGE_META: Record<string, { title: string }> = {
   "/chat": { title: "AI Chat" },
   "/videos": { title: "Video Learning" },
   "/privacy-policy": { title: "Privacy Policy" },
+  "/terms": { title: "Terms of Service" },
+  "/login": { title: "Sign In" },
 };
+
+// Routes that render without sidebar/header
+const BARE_ROUTES = new Set(["/login"]);
 
 function AppLayout() {
   const location = useLocation();
   const meta = PAGE_META[location.pathname] || PAGE_META["/"];
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const isBare = BARE_ROUTES.has(location.pathname);
 
   useEffect(() => {
     document.title = `${meta.title} — Alpha Signal AI`;
   }, [meta.title]);
+
+  if (isBare) {
+    return <Outlet />;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -73,6 +85,12 @@ const dashboardRoute = createRoute({
       <Dashboard />
     </ProtectedRoute>
   ),
+});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  component: LoginPage,
 });
 
 const chartsRoute = createRoute({
@@ -161,8 +179,15 @@ const privacyPolicyRoute = createRoute({
   component: PrivacyPolicy,
 });
 
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: TermsOfService,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  loginRoute,
   chartsRoute,
   signalsRoute,
   liquidationRoute,
@@ -172,6 +197,7 @@ const routeTree = rootRoute.addChildren([
   videosRoute,
   chatRoute,
   privacyPolicyRoute,
+  termsRoute,
 ]);
 
 const router = createRouter({ routeTree });

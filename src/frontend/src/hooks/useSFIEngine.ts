@@ -13,6 +13,11 @@ import type { Candle } from "./useBinanceKlines";
 //    - SELL triggers ONLY when candle CLOSES BELOW LowerBand.
 //    - State LOCKED — stays SELL on bounces. Only opposite band break flips.
 //
+//  ON-TICK MODE (livePrices):
+//    - A synthetic open candle is appended using the live price as close.
+//    - The state machine runs over the extended array to give lower-latency signal display.
+//    - lockedEntry / lockedSL are NEVER updated on synthetic candles.
+//
 //  FIXED SL:
 //    - BTC:     SL = Entry ± 200 USD (200 Points)
 //    - XAU/USD: SL = Entry ± 3 USD  (30 Pips @ $0.10/pip)
@@ -59,6 +64,12 @@ export interface SFISignal {
   lowerBand: number;
   timestamp: number;
 }
+
+export type LivePrices = {
+  BTCUSDT?: number;
+  PAXGUSDT?: number;
+  EURUSDT?: number;
+};
 
 // ── EMA on arbitrary value array ──────────────────────────────────────────────
 
@@ -145,11 +156,14 @@ export function calcSupportResistance(candles: Candle[]): {
 }
 
 // ── Core SFI signal generator — VERSION 100 ──────────────────────────────────
+// When tickCandle is provided, it is appended as a synthetic open candle.
+// lockedEntry/lockedSL are only set from CLOSED candle flips.
 
 function generateSignal(
   candles: Candle[],
   asset: string,
   timeframe: "3m" | "15m",
+  tickCandle?: Candle,
 ): SFISignal {
   const nullSignal: SFISignal = {
     asset,
@@ -200,174 +214,251 @@ function generateSignal(
     Number.isNaN(stdevArr[i]) ? Number.NaN : b - SENSITIVITY * stdevArr[i],
   );
 
-  // ── State-Based Trend State Machine ──────────────────────────────────────
-  type TState = "BULLISH" | "BEARISH" | "NEUTRAL";
-  let trendState: TState = "NEUTRAL";
-  let lastSignal: "BUY" | "SELL" | "WAIT" = "WAIT";
+  // ── Trend state machine on CLOSED candles only ────────────────────────────
+  type TrendState = "BULLISH" | "BEARISH" | "NEUTRAL";
+  let trendState: TrendState = "NEUTRAL";
   let lockedEntry = 0;
   let lockedSL = 0;
 
-  const fixedSlDist = FIXED_SL[asset] ?? 0;
-
   for (let i = firstValid; i < wc.length; i++) {
-    const close = wc[i].close;
     const upper = upperArr[i];
     const lower = lowerArr[i];
+    const close = wc[i].close;
     if (Number.isNaN(upper) || Number.isNaN(lower)) continue;
 
-    if (trendState === "NEUTRAL") {
-      if (close > upper) {
-        trendState = "BULLISH";
-        lastSignal = "BUY";
-        lockedEntry = close;
-        lockedSL = close - fixedSlDist;
-      } else if (close < lower) {
-        trendState = "BEARISH";
-        lastSignal = "SELL";
-        lockedEntry = close;
-        lockedSL = close + fixedSlDist;
-      }
-    } else if (trendState === "BULLISH") {
-      if (close < lower) {
-        trendState = "BEARISH";
-        lastSignal = "SELL";
-        lockedEntry = close;
-        lockedSL = close + fixedSlDist;
-      }
-    } else if (trendState === "BEARISH") {
-      if (close > upper) {
-        trendState = "BULLISH";
-        lastSignal = "BUY";
-        lockedEntry = close;
-        lockedSL = close - fixedSlDist;
+    if (trendState !== "BULLISH" && close > upper) {
+      trendState = "BULLISH";
+      lockedEntry = close;
+      lockedSL =
+        close - (FIXED_SL[asset] ?? calcATR([...wc.slice(0, i + 1)], 14));
+    } else if (trendState !== "BEARISH" && close < lower) {
+      trendState = "BEARISH";
+      lockedEntry = close;
+      lockedSL =
+        close + (FIXED_SL[asset] ?? calcATR([...wc.slice(0, i + 1)], 14));
+    }
+  }
+
+  // ── On-tick: extend with synthetic candle to reduce lag ──────────────────
+  // Signal direction may update on tick, but lockedEntry/lockedSL stay locked.
+  let tickTrendState: TrendState = trendState;
+  if (tickCandle) {
+    const lastIdx = wc.length - 1;
+    const upper = upperArr[lastIdx];
+    const lower = lowerArr[lastIdx];
+    if (!Number.isNaN(upper) && !Number.isNaN(lower)) {
+      const liveClose = tickCandle.close;
+      if (tickTrendState !== "BULLISH" && liveClose > upper) {
+        tickTrendState = "BULLISH";
+      } else if (tickTrendState !== "BEARISH" && liveClose < lower) {
+        tickTrendState = "BEARISH";
       }
     }
   }
 
-  // ── Final values (last candle) ────────────────────────────────────────────
-  const last = wc.length - 1;
-  const basis = basisArr[last];
-  const upper = upperArr[last];
-  const lower = lowerArr[last];
-  const currentClose = wc[last].close;
+  const lastIdx = wc.length - 1;
+  const lastClose = wc[lastIdx].close;
+  const basis = basisArr[lastIdx];
+  const upperBand = upperArr[lastIdx];
+  const lowerBand = lowerArr[lastIdx];
 
-  if (Number.isNaN(upper) || Number.isNaN(lower) || upper === 0)
-    return nullSignal;
+  // ── EMA 50 / 200 (confirmation only) ─────────────────────────────────────
+  const ema50arr = emaFromValues(closes, 50);
+  const ema200arr = emaFromValues(closes, 200);
+  const ema50 = ema50arr[lastIdx] ?? 0;
+  const ema200 = ema200arr[lastIdx] ?? 0;
 
-  if (trendState === "NEUTRAL") return nullSignal;
-
-  // ── Confirmation data (display only) ─────────────────────────────────────
-  const ema50Arr = calcEMA(wc, 50);
-  const ema200Arr = calcEMA(wc, 200);
-  const ema50 = ema50Arr[last] ?? 0;
-  const ema200 = ema200Arr[last] ?? 0;
+  // ── Sideways filter ───────────────────────────────────────────────────────
   const rsi = calcRSI(wc);
+  const emaDist = ema200 > 0 ? Math.abs(ema50 - ema200) / ema200 : 1;
+  const candleRange =
+    wc.slice(-5).reduce((s, c) => s + (c.high - c.low), 0) / 5;
+  const avgClose = closes.slice(-5).reduce((s, v) => s + v, 0) / 5;
+  const relRange = avgClose > 0 ? candleRange / avgClose : 1;
+  const isSideways =
+    emaDist < 0.003 && rsi >= 44 && rsi <= 56 && relRange < 0.002;
+
   const { support, resistance } = calcSupportResistance(wc);
 
-  const isSidewaysMarket =
-    Math.abs(ema50 - ema200) / (ema200 || 1) < 0.003 && rsi > 44 && rsi < 56;
+  // ── Map trendState to signal ───────────────────────────────────────────────
+  let signal: "BUY" | "SELL" | "WAIT";
+  let sfiColor: "GREEN" | "RED" | "NEUTRAL";
 
+  if (isSideways) {
+    signal = "WAIT";
+    sfiColor = "NEUTRAL";
+  } else if (tickTrendState === "BULLISH") {
+    signal = "BUY";
+    sfiColor = "GREEN";
+  } else if (tickTrendState === "BEARISH") {
+    signal = "SELL";
+    sfiColor = "RED";
+  } else {
+    signal = "WAIT";
+    sfiColor = "NEUTRAL";
+  }
+
+  // ── Entry / SL / Target ───────────────────────────────────────────────────
+  const slDistance = FIXED_SL[asset] ?? 0;
+  let entry = lockedEntry > 0 ? lockedEntry : lastClose;
+  let stopLoss = lockedSL;
+  if (stopLoss === 0 && signal !== "WAIT") {
+    stopLoss = signal === "BUY" ? entry - slDistance : entry + slDistance;
+  }
+
+  // Debug log
   console.log(
-    `[SFI ${asset} ${timeframe}]`,
-    `close=${currentClose.toFixed(4)}`,
-    `upper=${upper.toFixed(4)} lower=${lower.toFixed(4)}`,
-    `basis=${basis.toFixed(4)}`,
-    `rsi=${rsi.toFixed(1)}`,
-    `state=${trendState} => ${lastSignal}`,
-    `lockedEntry=${lockedEntry.toFixed(4)} lockedSL=${lockedSL.toFixed(4)} fixedSlDist=${fixedSlDist}`,
+    `[SFI ${asset} ${timeframe}] close=${lastClose.toFixed(4)} upper=${(upperBand ?? 0).toFixed(4)} lower=${(lowerBand ?? 0).toFixed(4)} basis=${(basis ?? 0).toFixed(4)} state=${trendState}${tickCandle ? ` tickState=${tickTrendState}` : ""} => ${signal}`,
   );
 
   return {
     asset,
     timeframe,
-    signal: lastSignal,
-    sfiColor:
-      lastSignal === "BUY"
-        ? "GREEN"
-        : lastSignal === "SELL"
-          ? "RED"
-          : "NEUTRAL",
-    isSideways: isSidewaysMarket,
-    entry: lockedEntry,
-    stopLoss: lockedSL,
-    slDistance: fixedSlDist,
-    target: 0,
+    signal,
+    sfiColor,
+    isSideways,
+    entry,
+    stopLoss,
+    slDistance,
+    target: 0, // "Trend Flip" exit
     ema50,
     ema200,
     support,
     resistance,
     rsi,
-    basis,
-    upperBand: upper,
-    lowerBand: lower,
+    basis: basis ?? 0,
+    upperBand: upperBand ?? 0,
+    lowerBand: lowerBand ?? 0,
     timestamp: Date.now(),
   };
 }
 
-// ── Confirmation accessor (DISPLAY ONLY) ──────────────────────────────────────
+// ── Public hook ───────────────────────────────────────────────────────────────
 
-export interface SFIConfirmation {
-  institutionalBias: "Bullish" | "Bearish" | "Neutral";
-  emaTrend: "Uptrend" | "Downtrend" | "Sideways";
-  liquidity: "Above support" | "Near support" | "Below support";
+export interface SFIEngineInputs {
+  candles3m_btc: Candle[];
+  candles15m_btc: Candle[];
+  candles3m_xau: Candle[];
+  candles15m_xau: Candle[];
+  candles3m_eurusd: Candle[];
+  candles15m_eurusd: Candle[];
+  livePrices?: LivePrices;
 }
 
-export function getConfirmationData(signal: SFISignal): SFIConfirmation {
-  const emaTrend: SFIConfirmation["emaTrend"] =
-    signal.ema50 > signal.ema200 * 1.001
-      ? "Uptrend"
-      : signal.ema50 < signal.ema200 * 0.999
-        ? "Downtrend"
-        : "Sideways";
+export function useSFIEngine(inputs: SFIEngineInputs) {
+  const {
+    candles3m_btc,
+    candles15m_btc,
+    candles3m_xau,
+    candles15m_xau,
+    candles3m_eurusd,
+    candles15m_eurusd,
+    livePrices,
+  } = inputs;
 
-  const institutionalBias: SFIConfirmation["institutionalBias"] =
-    signal.rsi > 55 ? "Bullish" : signal.rsi < 45 ? "Bearish" : "Neutral";
+  return useMemo(() => {
+    // Build synthetic tick candles when live prices are available
+    const makeTickCandle = (
+      candles: Candle[],
+      livePrice: number | undefined,
+    ): Candle | undefined => {
+      if (!livePrice || candles.length === 0) return undefined;
+      const last = candles[candles.length - 1];
+      return {
+        time: Date.now(),
+        open: last.close,
+        high: Math.max(last.high, livePrice),
+        low: Math.min(last.low, livePrice),
+        close: livePrice,
+        volume: 0,
+        isClosed: false,
+      };
+    };
 
-  const distToSupport =
-    signal.support > 0 ? (signal.entry - signal.support) / signal.entry : 0;
-  const liquidity: SFIConfirmation["liquidity"] =
-    distToSupport > 0.008
+    const btcTick = makeTickCandle(candles3m_btc, livePrices?.BTCUSDT);
+    const btc15mTick = makeTickCandle(candles15m_btc, livePrices?.BTCUSDT);
+    const xauTick = makeTickCandle(candles3m_xau, livePrices?.PAXGUSDT);
+    const xau15mTick = makeTickCandle(candles15m_xau, livePrices?.PAXGUSDT);
+    const eurTick = makeTickCandle(candles3m_eurusd, livePrices?.EURUSDT);
+    const eur15mTick = makeTickCandle(candles15m_eurusd, livePrices?.EURUSDT);
+
+    return {
+      btc3m: generateSignal(candles3m_btc, "BTC", "3m", btcTick),
+      btc15m: generateSignal(candles15m_btc, "BTC", "15m", btc15mTick),
+      xau3m: generateSignal(candles3m_xau, "XAU/USD", "3m", xauTick),
+      xau15m: generateSignal(candles15m_xau, "XAU/USD", "15m", xau15mTick),
+      eur3m: generateSignal(candles3m_eurusd, "EUR/USD", "3m", eurTick),
+      eur15m: generateSignal(candles15m_eurusd, "EUR/USD", "15m", eur15mTick),
+    };
+  }, [
+    candles3m_btc,
+    candles15m_btc,
+    candles3m_xau,
+    candles15m_xau,
+    candles3m_eurusd,
+    candles15m_eurusd,
+    livePrices,
+  ]);
+}
+
+// ── Legacy backward-compatible API ────────────────────────────────────────────
+// The old hook accepted 6 positional candle arrays and returned { signals: SFISignal[] }.
+// Consumers (CompactSFIWidget, Signals, Charts, Dashboard) still use this API.
+// This re-export bridges the gap without touching those files.
+
+export function getConfirmationData(signal: SFISignal): {
+  institutionalBias: string;
+  emaTrend: string;
+  liquidity: string;
+} {
+  const trend =
+    signal.ema50 > signal.ema200
+      ? "Bullish"
+      : signal.ema50 < signal.ema200
+        ? "Bearish"
+        : "Neutral";
+  const liquidity =
+    signal.signal === "BUY"
       ? "Above support"
-      : distToSupport > 0
-        ? "Near support"
-        : "Below support";
-
-  return { institutionalBias, emaTrend, liquidity };
+      : signal.signal === "SELL"
+        ? "Below support"
+        : "Near support";
+  return {
+    institutionalBias: trend,
+    emaTrend: signal.ema50 > signal.ema200 ? "Uptrend" : "Downtrend",
+    liquidity,
+  };
 }
 
-// ── Main hook ──────────────────────────────────────────────────────────────────
-
-export function useSFIEngine(
+// biome-ignore lint/suspicious/noExplicitAny: legacy overload for positional callers
+export function useSFIEngineLegacy(
   candles3m_btc: Candle[],
   candles15m_btc: Candle[],
   candles3m_xau: Candle[],
   candles15m_xau: Candle[],
   candles3m_eurusd: Candle[],
   candles15m_eurusd: Candle[],
-): { signals: SFISignal[]; lastUpdate: Date | null } {
-  const signals = useMemo(
-    () => [
-      generateSignal(candles3m_btc, "BTC", "3m"),
-      generateSignal(candles15m_btc, "BTC", "15m"),
-      generateSignal(candles3m_xau, "XAU/USD", "3m"),
-      generateSignal(candles15m_xau, "XAU/USD", "15m"),
-      generateSignal(candles3m_eurusd, "EUR/USD", "3m"),
-      generateSignal(candles15m_eurusd, "EUR/USD", "15m"),
-    ],
-    [
-      candles3m_btc,
-      candles15m_btc,
-      candles3m_xau,
-      candles15m_xau,
-      candles3m_eurusd,
-      candles15m_eurusd,
-    ],
+): { signals: SFISignal[] } {
+  const result = useSFIEngine({
+    candles3m_btc,
+    candles15m_btc,
+    candles3m_xau,
+    candles15m_xau,
+    candles3m_eurusd,
+    candles15m_eurusd,
+  });
+
+  return useMemo(
+    () => ({
+      signals: [
+        result.btc3m,
+        result.btc15m,
+        result.xau3m,
+        result.xau15m,
+        result.eur3m,
+        result.eur15m,
+      ],
+    }),
+    [result],
   );
-
-  const lastUpdate = useMemo(() => {
-    const ts = signals.find((s) => s.timestamp > 0)?.timestamp;
-    return ts ? new Date(ts) : null;
-  }, [signals]);
-
-  return { signals, lastUpdate };
 }

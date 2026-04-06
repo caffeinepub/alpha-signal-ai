@@ -1,7 +1,9 @@
 import { useCallback, useState } from "react";
 
 const ADMIN_EMAIL = "prakash.brjn01@gmail.com";
+const ADMIN_PASSWORD = "Admin@123";
 const ADMIN_SECRET_KEY = "AlphaSignal2024!";
+const ADMIN_NEW_KEY = "AlphaSignal2026#";
 const SESSION_KEY = "alpha_admin_verified";
 
 export function useAdminGate() {
@@ -9,12 +11,16 @@ export function useAdminGate() {
     return sessionStorage.getItem(SESSION_KEY) === "true";
   });
 
+  // Supports password login, legacy secret key, and new 2026 key
   const verifyAdmin = useCallback(
-    (email: string, secretKey: string): boolean => {
+    (email: string, credential: string): boolean => {
       const emailMatch =
         email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
-      const keyMatch = secretKey === ADMIN_SECRET_KEY;
-      if (emailMatch && keyMatch) {
+      const credentialMatch =
+        credential === ADMIN_PASSWORD ||
+        credential === ADMIN_SECRET_KEY ||
+        credential === ADMIN_NEW_KEY;
+      if (emailMatch && credentialMatch) {
         sessionStorage.setItem(SESSION_KEY, "true");
         setIsAdminVerified(true);
         return true;
@@ -29,5 +35,5 @@ export function useAdminGate() {
     setIsAdminVerified(false);
   }, []);
 
-  return { isAdminVerified, verifyAdmin, lockAdmin };
+  return { isAdminVerified, verifyAdmin, lockAdmin, ADMIN_EMAIL };
 }

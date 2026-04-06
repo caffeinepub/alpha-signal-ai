@@ -194,15 +194,22 @@ export default function Sidebar({
             caffeine.ai
           </a>
         </div>
-        <div className="text-[10px] text-muted-foreground/60 text-center">
+        <div className="text-[10px] text-muted-foreground/60 text-center flex items-center justify-center gap-1.5 flex-wrap">
           <a
             href="/privacy-policy"
             className="hover:text-primary transition-colors underline underline-offset-2"
+            data-ocid="nav.privacy_policy.link"
           >
             Privacy Policy
           </a>
-          {" · "}
-          <span className="italic">Educational use only</span>
+          <span>·</span>
+          <a
+            href="/terms"
+            className="hover:text-primary transition-colors underline underline-offset-2"
+            data-ocid="nav.terms.link"
+          >
+            Terms of Service
+          </a>
         </div>
       </div>
     </div>

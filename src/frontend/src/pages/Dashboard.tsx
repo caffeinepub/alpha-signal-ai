@@ -46,7 +46,7 @@ import {
   useTopLosers,
 } from "../hooks/useQueries";
 import { useGeminiEngine } from "../hooks/useRealGeminiEngine";
-import { useSFIEngine } from "../hooks/useSFIEngine";
+import { useSFIEngineLegacy as useSFIEngine } from "../hooks/useSFIEngine";
 import { useScalperEngine } from "../hooks/useScalperEngine";
 import { useSmartMoneyFlow } from "../hooks/useSmartMoneyFlow";
 

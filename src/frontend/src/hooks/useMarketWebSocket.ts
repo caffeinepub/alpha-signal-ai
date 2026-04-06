@@ -81,6 +81,9 @@ export function useMarketWebSocket(): MarketWebSocketState {
   const [xauMarketClosed, setXauMarketClosed] = useState(!isForexMarketOpen());
   const [xauLastUpdated, setXauLastUpdated] = useState<Date | null>(null);
 
+  // Internal ref to latest market data for the 1s display ticker
+  const marketDataRef = useRef<MarketAsset[]>(INITIAL_MARKET_DATA);
+
   const isConnected = binanceConnected;
 
   // Refs for Binance WebSocket
@@ -129,18 +132,29 @@ export function useMarketWebSocket(): MarketWebSocketState {
         const high24h = Number.parseFloat(ticker.h);
         const low24h = Number.parseFloat(ticker.l);
 
+        const updated: MarketAsset = {
+          symbol: mapping.symbol,
+          name: mapping.name,
+          price,
+          change24h,
+          volume,
+          high24h,
+          low24h,
+        };
+
+        // Update ref immediately (for display ticker)
+        const refNext = [...marketDataRef.current];
+        const refIdx = refNext.findIndex((a) => a.symbol === mapping.symbol);
+        if (refIdx >= 0) {
+          refNext[refIdx] = updated;
+        } else {
+          refNext.push(updated);
+        }
+        marketDataRef.current = refNext;
+
         setMarketData((prev) => {
           const next = [...prev];
           const idx = next.findIndex((a) => a.symbol === mapping.symbol);
-          const updated: MarketAsset = {
-            symbol: mapping.symbol,
-            name: mapping.name,
-            price,
-            change24h,
-            volume,
-            high24h,
-            low24h,
-          };
           if (idx >= 0) {
             next[idx] = updated;
           } else {
@@ -200,6 +214,14 @@ export function useMarketWebSocket(): MarketWebSocketState {
       }
     }, 60_000);
 
+    // 1-second display refresh ticker for BTC and Gold price cards
+    // Forces a re-render every second so displayed prices always feel live
+    const displayTicker = setInterval(() => {
+      if (!unmountedRef.current) {
+        setMarketData([...marketDataRef.current]);
+      }
+    }, 1000);
+
     return () => {
       unmountedRef.current = true;
       if (reconnectTimerRef.current) {
@@ -213,6 +235,7 @@ export function useMarketWebSocket(): MarketWebSocketState {
         wsRef.current.close();
       }
       clearInterval(xauInterval);
+      clearInterval(displayTicker);
     };
   }, [connect]);
 

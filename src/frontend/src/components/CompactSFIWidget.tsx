@@ -1,6 +1,9 @@
 import { useBinanceKlines } from "../hooks/useBinanceKlines";
 import { useEURUSD } from "../hooks/useEURUSD";
-import { getConfirmationData, useSFIEngine } from "../hooks/useSFIEngine";
+import {
+  getConfirmationData,
+  useSFIEngineLegacy as useSFIEngine,
+} from "../hooks/useSFIEngine";
 import type { SFISignal } from "../hooks/useSFIEngine";
 
 function fmt(n: number, asset: string): string {

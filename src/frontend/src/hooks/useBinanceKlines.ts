@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Binance Kline/Candlestick WebSocket ─────────────────────────────────────
-// Subscribes to BTC and PAXG (gold proxy) kline streams for 3m and 15m.
+// Subscribes to BTC, PAXG (gold proxy), and EURUSDT kline streams for 3m and 15m.
 // Accumulates rolling candle buffers for the SFI signal engine.
 
 export interface Candle {
@@ -19,6 +19,8 @@ export interface BinanceKlinesState {
   candles15m_btc: Candle[];
   candles3m_xau: Candle[];
   candles15m_xau: Candle[];
+  candles3m_eurusd: Candle[];
+  candles15m_eurusd: Candle[];
   // Backward-compat aliases used by legacy hooks
   candles1m: Candle[];
   candles3m: Candle[];
@@ -29,7 +31,7 @@ export interface BinanceKlinesState {
 }
 
 const KLINE_WS_URL =
-  "wss://stream.binance.com:9443/stream?streams=btcusdt@kline_3m/btcusdt@kline_15m/paxgusdt@kline_3m/paxgusdt@kline_15m";
+  "wss://stream.binance.com:9443/stream?streams=btcusdt@kline_3m/btcusdt@kline_15m/paxgusdt@kline_3m/paxgusdt@kline_15m/eurusdt@kline_3m/eurusdt@kline_15m";
 
 const MAX_CANDLES = 200;
 const MAX_RECONNECT_DELAY = 30000;
@@ -86,6 +88,8 @@ export function useBinanceKlines(): BinanceKlinesState {
   const [candles15m_btc, setCandles15mBtc] = useState<Candle[]>([]);
   const [candles3m_xau, setCandles3mXau] = useState<Candle[]>([]);
   const [candles15m_xau, setCandles15mXau] = useState<Candle[]>([]);
+  const [candles3m_eurusd, setCandles3mEurusd] = useState<Candle[]>([]);
+  const [candles15m_eurusd, setCandles15mEurusd] = useState<Candle[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastTickTime, setLastTickTime] = useState(0);
 
@@ -102,6 +106,8 @@ export function useBinanceKlines(): BinanceKlinesState {
         { symbol: "BTCUSDT", interval: "15m", set: setCandles15mBtc },
         { symbol: "PAXGUSDT", interval: "3m", set: setCandles3mXau },
         { symbol: "PAXGUSDT", interval: "15m", set: setCandles15mXau },
+        { symbol: "EURUSDT", interval: "3m", set: setCandles3mEurusd },
+        { symbol: "EURUSDT", interval: "15m", set: setCandles15mEurusd },
       ];
       await Promise.all(
         pairs.map(async ({ symbol, interval, set }) => {
@@ -177,6 +183,12 @@ export function useBinanceKlines(): BinanceKlinesState {
           } else if (k.i === "15m") {
             setCandles15mXau((prev) => upsertCandle(prev, candle));
           }
+        } else if (symbol === "EURUSDT") {
+          if (k.i === "3m") {
+            setCandles3mEurusd((prev) => upsertCandle(prev, candle));
+          } else if (k.i === "15m") {
+            setCandles15mEurusd((prev) => upsertCandle(prev, candle));
+          }
         }
       } catch {
         // ignore
@@ -237,6 +249,8 @@ export function useBinanceKlines(): BinanceKlinesState {
     candles15m_btc,
     candles3m_xau,
     candles15m_xau,
+    candles3m_eurusd,
+    candles15m_eurusd,
     // Backward-compat: alias BTC 3m as the legacy candles3m
     candles1m: candles3m_btc,
     candles3m: candles3m_btc,

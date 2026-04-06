@@ -44,7 +44,6 @@ import {
   Tablet,
   Trash2,
   UserMinus,
-  UserX,
   Users,
   Zap,
 } from "lucide-react";
@@ -163,7 +162,6 @@ export default function AdminDashboard() {
   );
 
   const totalUsers = users.length;
-  const adminCount = users.filter((u) => u.role === "admin").length;
   const bannedCount = bannedIds.size;
   const activeSessions = Math.max(1, users.length);
 
@@ -174,6 +172,7 @@ export default function AdminDashboard() {
     okx: 11,
   };
 
+  // Stats: only Total Users and Active Sessions shown to admin
   const stats = [
     {
       label: "Total Users",
@@ -186,18 +185,6 @@ export default function AdminDashboard() {
       value: activeSessions,
       icon: Activity,
       color: "text-bull",
-    },
-    {
-      label: "Admin Users",
-      value: adminCount,
-      icon: Shield,
-      color: "text-hold",
-    },
-    {
-      label: "Banned Users",
-      value: bannedCount,
-      icon: UserX,
-      color: "text-bear",
     },
   ];
 
@@ -263,7 +250,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         {stats.map((stat, i) => (
           <motion.div
             key={stat.label}
