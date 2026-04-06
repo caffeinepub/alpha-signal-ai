@@ -1,3 +1,4 @@
+import { useAdminGate } from "@/hooks/useAdminGate";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
@@ -82,6 +83,7 @@ export default function Sidebar({
   mobileOpen,
   setMobileOpen,
 }: SidebarProps) {
+  const { isAdminVerified } = useAdminGate();
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -127,54 +129,56 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-1">
-        {navItems.map((item) => {
-          const isActive =
-            item.path === "/"
-              ? currentPath === "/"
-              : currentPath.startsWith(item.path);
-          const Icon = item.icon;
-          const isAdminItem = item.path === "/admin";
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              data-ocid={item.ocid}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group",
-                isActive
-                  ? isAdminItem
-                    ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                    : "bg-primary/15 text-primary border border-primary/30 glow-cyan"
-                  : isAdminItem
-                    ? "text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent",
-              )}
-            >
-              <Icon
+        {navItems
+          .filter((item) => item.path !== "/admin" || isAdminVerified)
+          .map((item) => {
+            const isActive =
+              item.path === "/"
+                ? currentPath === "/"
+                : currentPath.startsWith(item.path);
+            const Icon = item.icon;
+            const isAdminItem = item.path === "/admin";
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                data-ocid={item.ocid}
+                onClick={() => setMobileOpen(false)}
                 className={cn(
-                  "w-4 h-4 flex-shrink-0 transition-colors",
+                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group",
                   isActive
                     ? isAdminItem
-                      ? "text-amber-400"
-                      : "text-primary"
+                      ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                      : "bg-primary/15 text-primary border border-primary/30 glow-cyan"
                     : isAdminItem
-                      ? "text-amber-400/70 group-hover:text-amber-400"
-                      : "text-muted-foreground group-hover:text-foreground",
+                      ? "text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent",
                 )}
-              />
-              <span>{item.label}</span>
-              {isActive && (
-                <div
+              >
+                <Icon
                   className={cn(
-                    "ml-auto w-1.5 h-1.5 rounded-full",
-                    isAdminItem ? "bg-amber-400" : "bg-primary",
+                    "w-4 h-4 flex-shrink-0 transition-colors",
+                    isActive
+                      ? isAdminItem
+                        ? "text-amber-400"
+                        : "text-primary"
+                      : isAdminItem
+                        ? "text-amber-400/70 group-hover:text-amber-400"
+                        : "text-muted-foreground group-hover:text-foreground",
                   )}
                 />
-              )}
-            </Link>
-          );
-        })}
+                <span>{item.label}</span>
+                {isActive && (
+                  <div
+                    className={cn(
+                      "ml-auto w-1.5 h-1.5 rounded-full",
+                      isAdminItem ? "bg-amber-400" : "bg-primary",
+                    )}
+                  />
+                )}
+              </Link>
+            );
+          })}
       </nav>
 
       {/* Footer */}

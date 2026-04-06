@@ -194,6 +194,19 @@ export function useLiquidationData(): LiquidationState {
           id: 1,
         });
         ws.send(subscribeMsg);
+
+        // Keep-alive ping every 30 seconds
+        const keepAliveInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ method: "LIST_SUBSCRIPTIONS", id: 99 }));
+          } else {
+            clearInterval(keepAliveInterval);
+          }
+        }, 30_000);
+        (
+          ws as WebSocket & { _keepAlive?: ReturnType<typeof setInterval> }
+        )._keepAlive = keepAliveInterval;
+
         console.log(
           "[Liquidation] WebSocket connected, subscribed to",
           STREAM_NAME,
@@ -258,6 +271,11 @@ export function useLiquidationData(): LiquidationState {
       };
 
       ws.onclose = (event) => {
+        // Clear keep-alive if it exists
+        const keepAlive = (
+          ws as WebSocket & { _keepAlive?: ReturnType<typeof setInterval> }
+        )._keepAlive;
+        if (keepAlive) clearInterval(keepAlive);
         if (unmountedRef.current) return;
         isConnectedRef.current = false;
         console.warn(

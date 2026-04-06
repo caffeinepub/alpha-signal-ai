@@ -1,33 +1,39 @@
-# Alpha Signal AI
+# Alpha Signal AI — 4 Critical Updates
 
 ## Current State
-- `/admin` route is open to everyone — ProtectedRoute is a passthrough, no auth check
-- AdminDashboard shows all sections (User Management, Affiliate Stats, System Status, Login Activity) to any visitor
-- Videos page "Add Video" button is visible and functional for everyone
-- No 2FA or secret key gate exists
-- `useAuth` always returns ADMIN_USER unconditionally
+
+- **Admin lockdown**: `useAdminGate.ts` hardcodes `ADMIN_EMAIL = "prakash.brjn01@gmail.com"` and `ADMIN_SECRET_KEY = "AlphaSignal2024!"`. `AdminGate.tsx` shows a lock screen. However, `Sidebar.tsx` renders the Admin Panel nav item unconditionally for all users — it does not check if the user is admin. The `VideosPage.tsx` admin upload button visibility must also be verified.
+- **Economic Calendar**: `ProfessionalEconomicCalendar.tsx` fetches from Financial Modeling Prep (demo key) with CORS proxy fallback. On failure it shows fallback events and retries every 30s. The 'Live Feed Unavailable' yellow warning appears when `consecutiveFailuresRef.current >= 2`. This is fine logic but the TradingView RSS fallback is missing.
+- **Liquidation Heatmap**: `useLiquidationData.ts` connects to `wss://fstream.binance.com/ws` and subscribes to `btcusdt@forceOrder`. It has a simulation fallback. The WebSocket is already implemented correctly — but the Binance Futures Public WS may be blocked in certain environments. The hook needs to ensure it is robust.
+- **SFI Canvas Overlay**: `SFICanvasOverlay.tsx` — already clean with no Supply/Demand zones. Dark cloud at 60% opacity (emerald/red) with EMA 200 and BUY/SELL labels is already implemented correctly. No changes needed.
+- **Privacy Policy**: `PrivacyPolicy.tsx` exists with Risk Disclaimer. The `/privacy-policy` route is registered in `App.tsx`.
+- **PWA**: `manifest.json` exists with `"display": "standalone"`. `index.html` has the manifest link and Apple meta tags. Already implemented.
 
 ## Requested Changes (Diff)
 
 ### Add
-- `useAdminGate` hook: stores admin session in sessionStorage (tab-scoped); exports `isAdminVerified`, `verifyAdmin(email, secretKey)`, `lockAdmin()`
-- `AdminGate.tsx` component: full-screen lock screen shown to anyone hitting `/admin` who hasn't passed 2FA. Requires email = `prakash.brjn01@gmail.com` AND Admin Secret Key = `AlphaSignal2024!`. On wrong credentials: shows "Access Denied" error. On success: grants session, reveals dashboard.
-- `Master_Admin` flag: all localStorage video entries include `uploadedBy: 'Master_Admin'` when added by the verified admin session
-- Non-admin access to `/admin`: immediate redirect to `/` (home)
+- Add admin-gate visibility to the Sidebar so the Admin Panel menu item only shows when `isAdminVerified === true` from `useAdminGate`. Currently the sidebar shows the Admin Panel to everyone.
+- Add a footer to `PrivacyPolicy.tsx` with a link back to the dashboard (already has one but confirm it is accessible from the main layout footer/sidebar).
+- Ensure `VideosPage.tsx` admin upload button is gated by `useAdminGate`'s `isAdminVerified`.
 
 ### Modify
-- `ProtectedRoute.tsx`: when `requiredRole === 'admin'`, check `useAdminGate` — if not verified, render `<AdminGate />` (not a redirect, so the gate is shown inline; the URL stays /admin)
-- `AdminDashboard.tsx`: wrap entire content in admin-gate check; add lock icon header showing "ADMIN LOCKED" badge; Affiliate Click Stats and System Status sections only rendered when verified
-- `VideosPage.tsx`: "Add Video" button only shown when `useAdminGate().isAdminVerified` is true
-- `App.tsx`: pass `requiredRole="admin"` to the `/admin` ProtectedRoute
+- **Sidebar.tsx**: Import `useAdminGate` and only render the Admin Panel nav item if `isAdminVerified === true`.
+- **ProfessionalEconomicCalendar.tsx**: Add a TradingView Economic Calendar RSS feed (`https://www.tradingview.com/economic-calendar/`) as an additional fallback source alongside the FMP sources. Since RSS is CORS-blocked, use `allorigins.win` proxy to fetch it. If all live sources fail, continue showing fallback events silently with "Syncing..." instead of the yellow warning after repeated failures.
+- **useLiquidationData.ts**: Ensure the Binance Futures WebSocket connection is as robust as possible. Add a keep-alive ping every 30 seconds to prevent the connection from being dropped silently. Ensure the simulation fallback starts immediately so the UI never shows a blank/empty state.
+- **useAdminGate.ts**: Already correct — no changes needed.
+- **AdminDashboard.tsx**: Already gated by `AdminGate` component — confirm `useAdminGate` is used to show/hide admin actions (video upload, user management) within the page.
 
 ### Remove
-- No changes to Gold price system, market data, SFI engine, or any other modules
+- Nothing to remove — SFI canvas overlay is already clean. Privacy policy and PWA are already present.
 
 ## Implementation Plan
-1. Create `src/hooks/useAdminGate.ts` — sessionStorage-based gate with hardcoded credentials
-2. Create `src/components/AdminGate.tsx` — 2FA lock screen UI (dark themed, matching glassmorphism style)
-3. Update `ProtectedRoute.tsx` — check `requiredRole` prop and render gate when needed
-4. Update `App.tsx` — add `requiredRole="admin"` to admin route
-5. Update `AdminDashboard.tsx` — add admin badge header, keep all sections gated
-6. Update `VideosPage.tsx` — hide Add Video button for non-verified users
+
+1. **Sidebar admin visibility**: In `Sidebar.tsx`, call `useAdminGate()` to get `isAdminVerified`. Filter out the Admin Panel nav item if `!isAdminVerified`. This is the most critical missing piece.
+
+2. **Economic Calendar fallback improvement**: In `ProfessionalEconomicCalendar.tsx`, suppress the yellow 'Live Feed Unavailable' warning — replace it with a clean 'Syncing...' spinner for all fallback states. The fallback events are already good. Remove the aggressive yellow warning after 2+ consecutive failures, replacing with the gentler syncing state.
+
+3. **Liquidation WebSocket keep-alive**: In `useLiquidationData.ts`, add a 30-second ping interval when connected (`ws.send(JSON.stringify({ method: "LIST_SUBSCRIPTIONS", id: 2 }))`) to keep the connection alive. Ensure simulation starts immediately on mount (not just after WS connect attempt) so data appears instantly.
+
+4. **Video upload gate**: In `VideosPage.tsx`, import `useAdminGate` and use `isAdminVerified` to conditionally show the 'Add Video' button and delete buttons.
+
+5. **Validation**: Run lint, typecheck, and build — fix any errors before declaring done.

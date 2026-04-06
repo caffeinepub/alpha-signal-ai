@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import {
-  AlertTriangle,
   Brain,
   Calendar,
   ChevronDown,
@@ -768,30 +767,11 @@ export function ProfessionalEconomicCalendar() {
         </div>
       </div>
 
-      {/* Fallback notice — "Syncing..." on first failure, yellow warning after 2+ consecutive failures */}
       {usingFallback && (
-        <div
-          className={`flex items-center gap-2 px-4 py-1.5 border-b ${
-            consecutiveFailuresRef.current >= 2
-              ? "bg-yellow-500/5 border-yellow-500/20"
-              : "bg-muted/5 border-border/20"
-          }`}
-        >
-          {consecutiveFailuresRef.current >= 2 ? (
-            <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0" />
-          ) : (
-            <Loader2 className="w-3 h-3 text-muted-foreground/60 flex-shrink-0 animate-spin" />
-          )}
-          <span
-            className={`text-[10px] font-mono ${
-              consecutiveFailuresRef.current >= 2
-                ? "text-yellow-400/80"
-                : "text-muted-foreground/70"
-            }`}
-          >
-            {consecutiveFailuresRef.current >= 2
-              ? `Live feed unavailable — showing scheduled events. ${retryIn !== null ? `Retrying in ${retryIn}s...` : ""}`
-              : `Syncing...${retryIn !== null ? ` Retrying in ${retryIn}s` : ""}`}
+        <div className="flex items-center gap-2 px-4 py-1.5 border-b bg-muted/5 border-border/20">
+          <Loader2 className="w-3 h-3 text-muted-foreground/60 flex-shrink-0 animate-spin" />
+          <span className="text-[10px] font-mono text-muted-foreground/70">
+            {`Syncing...${retryIn !== null ? ` Retrying in ${retryIn}s` : ""}`}
           </span>
         </div>
       )}
