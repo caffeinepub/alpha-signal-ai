@@ -1,39 +1,49 @@
 import { useCallback, useState } from "react";
 
 const ADMIN_EMAIL = "prakash.brjn01@gmail.com";
-const ADMIN_PASSWORD = "Admin@123";
-const ADMIN_SECRET_KEY = "AlphaSignal2024!";
-const ADMIN_NEW_KEY = "AlphaSignal2026#";
-const SESSION_KEY = "alpha_admin_verified";
+const STORAGE_KEY = "isAdmin";
+
+const VALID_PASSWORDS = [
+  "Admin@1166",
+  "Admin@123",
+  "AlphaSignal2024!",
+  "AlphaSignal2026#",
+];
+
+export { ADMIN_EMAIL };
 
 export function useAdminGate() {
   const [isAdminVerified, setIsAdminVerified] = useState<boolean>(() => {
-    return sessionStorage.getItem(SESSION_KEY) === "true";
+    const val = localStorage.getItem(STORAGE_KEY);
+    console.log("[Admin] Page load - isAdmin state:", val === "true");
+    return val === "true";
   });
 
-  // Supports password login, legacy secret key, and new 2026 key
   const verifyAdmin = useCallback(
     (email: string, credential: string): boolean => {
       const emailMatch =
         email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
-      const credentialMatch =
-        credential === ADMIN_PASSWORD ||
-        credential === ADMIN_SECRET_KEY ||
-        credential === ADMIN_NEW_KEY;
+      const credentialMatch = VALID_PASSWORDS.includes(credential);
       if (emailMatch && credentialMatch) {
-        sessionStorage.setItem(SESSION_KEY, "true");
+        localStorage.setItem(STORAGE_KEY, "true");
         setIsAdminVerified(true);
+        console.log("[Admin] Login success - isAdmin set to true");
         return true;
       }
+      console.log("[Admin] Login failed - invalid credentials");
       return false;
     },
     [],
   );
 
-  const lockAdmin = useCallback(() => {
-    sessionStorage.removeItem(SESSION_KEY);
+  const logout = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
     setIsAdminVerified(false);
+    console.log("[Admin] Logged out");
   }, []);
 
-  return { isAdminVerified, verifyAdmin, lockAdmin, ADMIN_EMAIL };
+  // Legacy alias
+  const lockAdmin = logout;
+
+  return { isAdminVerified, verifyAdmin, logout, lockAdmin, ADMIN_EMAIL };
 }

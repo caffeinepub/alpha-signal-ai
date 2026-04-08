@@ -7,11 +7,13 @@ import {
   useLocation,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import BroadcastBanner from "./components/BroadcastBanner";
 import Header from "./components/Header";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Sidebar from "./components/Sidebar";
 import { AuthProvider } from "./hooks/useAuth";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminLoginPage from "./pages/AdminLoginPage";
 import Charts from "./pages/Charts";
 import ChatPage from "./pages/ChatPage";
 import Dashboard from "./pages/Dashboard";
@@ -32,6 +34,7 @@ const PAGE_META: Record<string, { title: string }> = {
   "/performance": { title: "Performance" },
   "/research": { title: "Research" },
   "/admin": { title: "Admin Dashboard" },
+  "/admin-login": { title: "Admin Login" },
   "/chat": { title: "AI Chat" },
   "/videos": { title: "Video Learning" },
   "/privacy-policy": { title: "Privacy Policy" },
@@ -40,7 +43,7 @@ const PAGE_META: Record<string, { title: string }> = {
 };
 
 // Routes that render without sidebar/header
-const BARE_ROUTES = new Set(["/login"]);
+const BARE_ROUTES = new Set(["/login", "/admin-login"]);
 
 function AppLayout() {
   const location = useLocation();
@@ -64,6 +67,7 @@ function AppLayout() {
         setMobileOpen={setSidebarOpen}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <BroadcastBanner />
         <Header onMenuToggle={() => setSidebarOpen((o) => !o)} />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
@@ -91,6 +95,12 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
+});
+
+const adminLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin-login",
+  component: AdminLoginPage,
 });
 
 const chartsRoute = createRoute({
@@ -146,11 +156,7 @@ const researchRoute = createRoute({
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
-  component: () => (
-    <ProtectedRoute requiredRole="admin">
-      <AdminDashboard />
-    </ProtectedRoute>
-  ),
+  component: AdminDashboard,
 });
 
 const videosRoute = createRoute({
@@ -188,6 +194,7 @@ const termsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   loginRoute,
+  adminLoginRoute,
   chartsRoute,
   signalsRoute,
   liquidationRoute,

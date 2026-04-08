@@ -1,9 +1,8 @@
 import { Send } from "lucide-react";
 import { useRef, useState } from "react";
 import CompactSFIWidget from "../components/CompactSFIWidget";
+import { callGeminiRaw } from "../utils/geminiClient";
 
-const GEMINI_KEY = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_KEY}`;
 const SYSTEM_PROMPT =
   "You are Alpha Signal AI, a professional trading assistant. Be concise and actionable. Focus on BTC, gold (XAU/USD), and EUR/USD trading analysis.";
 
@@ -17,38 +16,15 @@ async function askGemini(
   history: Message[],
   userText: string,
 ): Promise<string> {
-  const contents = [
-    { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
-    {
-      role: "model",
-      parts: [
-        {
-          text: "Understood. I am Alpha Signal AI, your professional trading assistant.",
-        },
-      ],
-    },
-    ...history.map((m) => ({
-      role: m.role === "user" ? "user" : "model",
-      parts: [{ text: m.text }],
-    })),
-    { role: "user", parts: [{ text: userText }] },
-  ];
-
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Gemini error ${res.status}`);
-  const data = await res.json();
-  return (
-    (data?.candidates?.[0]?.content?.parts?.[0]?.text as string) ??
-    "No response from Gemini."
-  );
+  const contextLines = history
+    .slice(-6) // keep last 6 messages for context
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
+    .join("\n");
+  const prompt = `${SYSTEM_PROMPT}\n\nConversation so far:\n${contextLines}\n\nUser: ${userText}\nAssistant:`;
+  console.log("[Chat] Request sent to backend proxy");
+  const reply = await callGeminiRaw(prompt);
+  console.log("[Chat] Response received", { length: reply.length });
+  return reply || "AI temporarily unavailable";
 }
 
 export default function ChatPage() {
@@ -88,16 +64,18 @@ export default function ChatPage() {
         { id: idRef.current++, role: "ai", text: reply },
       ]);
     } catch {
+      console.error("[Chat] Error during Gemini call");
       setMessages((prev) => [
         ...prev,
         {
           id: idRef.current++,
           role: "ai",
-          text: "⚠️ Analysis temporarily unavailable. Please retry.",
+          text: "⚠️ AI temporarily unavailable. Please retry.",
         },
       ]);
     } finally {
       setLoading(false);
+      scrollToBottom();
     }
   }
 

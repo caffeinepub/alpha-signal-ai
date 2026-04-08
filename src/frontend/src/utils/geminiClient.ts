@@ -1,7 +1,8 @@
-// Gemini 1.5 Pro Latest — direct REST fetch, frontend-only
-const GEMINI_API_KEY = "AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ";
-const GEMINI_MODEL = "gemini-1.5-pro-latest";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+// Gemini 1.5 Flash — routed through backend proxy (never called directly from frontend)
+// Backend route: POST /api/gemini
+// This avoids CORS issues and keeps the API key secure on the backend.
+
+import { GEMINI_CONFIG } from "../config";
 
 export interface GeminiAnalysisResult {
   trend: string;
@@ -55,90 +56,76 @@ function parseTradeBias(text: string): string {
   return "HOLD";
 }
 
-async function fetchGemini(
-  body: object,
-  retries = 2,
-): Promise<{ data: Record<string, unknown>; diagnostic: string | null }> {
-  let lastError = "";
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const responseText = await res.text();
-
-      if (!res.ok) {
-        let errDetail = "";
-        try {
-          const errJson = JSON.parse(responseText);
-          errDetail = errJson?.error?.message ?? responseText.substring(0, 200);
-        } catch {
-          errDetail = responseText.substring(0, 200);
-        }
-        lastError = `HTTP ${res.status}: ${errDetail}`;
-        console.error(`[Gemini] Attempt ${attempt + 1} failed:`, lastError);
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
-          continue;
-        }
-        return { data: {}, diagnostic: "AI connection retrying..." };
+/**
+ * Core proxy call — routes ALL Gemini requests through the backend proxy at /api/gemini.
+ * No retry loop. On failure returns null and logs the error.
+ */
+async function callBackendProxy(prompt: string): Promise<string | null> {
+  console.log("Gemini request sent", { promptLength: prompt.length });
+  try {
+    const res = await fetch(GEMINI_CONFIG.API_ROUTE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      if (
+        res.status === 403 ||
+        errText.includes("API_KEY") ||
+        errText.includes("INVALID_ARGUMENT") ||
+        errText.includes("PERMISSION_DENIED")
+      ) {
+        console.error("Gemini error", "API key missing or invalid");
+        return "__API_NOT_CONFIGURED__";
       }
-
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(responseText);
-      } catch {
-        return { data: {}, diagnostic: "AI connection retrying..." };
-      }
-
-      const candidates = parsed?.candidates as
-        | Array<Record<string, unknown>>
-        | undefined;
-      if (!candidates || candidates.length === 0) {
-        return { data: {}, diagnostic: "AI connection retrying..." };
-      }
-
-      const finishReason = (candidates[0]?.finishReason as string) ?? "";
-      const rawText =
-        ((
-          (candidates[0]?.content as Record<string, unknown>)?.parts as Array<
-            Record<string, unknown>
-          >
-        )?.[0]?.text as string) ?? "";
-
-      if (!rawText && finishReason !== "STOP") {
-        return { data: {}, diagnostic: "AI connection retrying..." };
-      }
-
-      return { data: parsed, diagnostic: null };
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[Gemini] Attempt ${attempt + 1} network error:`,
-        lastError,
-      );
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
-      }
+      console.error("Gemini error", `HTTP ${res.status}: ${errText}`);
+      return null;
     }
+    const rawResponse: string = await res.text();
+    console.log("Gemini response received", {
+      length: rawResponse?.length ?? 0,
+    });
+    if (rawResponse?.startsWith("ERROR:")) {
+      const errMsg = rawResponse.slice(6);
+      if (
+        errMsg.includes("403") ||
+        errMsg.includes("API_KEY") ||
+        errMsg.includes("INVALID_ARGUMENT") ||
+        errMsg.includes("PERMISSION_DENIED")
+      ) {
+        console.error("Gemini error", "API key missing or invalid");
+        return "__API_NOT_CONFIGURED__";
+      }
+      console.error("Gemini error", errMsg);
+      return null;
+    }
+    return rawResponse;
+  } catch (err) {
+    console.error("Gemini error", err);
+    return null;
   }
-  return { data: {}, diagnostic: "AI connection retrying..." };
 }
 
-function extractRawText(data: Record<string, unknown>): string {
-  const candidates = data?.candidates as
-    | Array<Record<string, unknown>>
-    | undefined;
-  return (
-    ((
+/**
+ * Extract text from raw Gemini JSON response returned by the backend
+ */
+function extractTextFromRawJson(rawJson: string): string {
+  try {
+    const parsed = JSON.parse(rawJson);
+    const candidates = parsed?.candidates as
+      | Array<Record<string, unknown>>
+      | undefined;
+    const text = (
       (candidates?.[0]?.content as Record<string, unknown>)?.parts as Array<
         Record<string, unknown>
       >
-    )?.[0]?.text as string) ?? ""
-  );
+    )?.[0]?.text as string;
+    return text ?? "";
+  } catch {
+    // If it's not JSON, it might already be plain text from an older response path
+    return rawJson;
+  }
 }
 
 export async function callGeminiInstitutionalBias(
@@ -160,21 +147,27 @@ CONFIDENCE: number 0-100
 ALIGNS_WITH_SFI: YES or NO
 REASONING: one sentence only`;
 
-  const { data, diagnostic } = await fetchGemini({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 150 },
-  });
+  const rawJson = await callBackendProxy(prompt);
 
-  if (diagnostic) {
+  if (rawJson === "__API_NOT_CONFIGURED__") {
     return {
       bias: "NEUTRAL",
       confidence: 50,
       alignsWithSFI: true,
-      reasoning: "AI connection retrying...",
+      reasoning: "AI not configured properly",
     };
   }
 
-  const text = extractRawText(data);
+  if (!rawJson) {
+    return {
+      bias: "NEUTRAL",
+      confidence: 50,
+      alignsWithSFI: true,
+      reasoning: "AI temporarily unavailable",
+    };
+  }
+
+  const text = extractTextFromRawJson(rawJson);
   const biasMatch = text.match(/BIAS:\s*(BULLISH|BEARISH|NEUTRAL)/i);
   const confMatch = text.match(/CONFIDENCE:\s*(\d+)/i);
   const alignsMatch = text.match(/ALIGNS_WITH_SFI:\s*(YES|NO)/i);
@@ -217,17 +210,22 @@ Target 2: [price level]
 
 Be specific, data-driven, and professional. Write as an institutional analyst.`;
 
-  const { data, diagnostic } = await fetchGemini({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
-  });
+  const rawJson = await callBackendProxy(prompt);
 
-  if (diagnostic) {
-    console.error("[Gemini] callGeminiResearch:", diagnostic);
-    throw new Error(diagnostic);
+  if (rawJson === "__API_NOT_CONFIGURED__") {
+    throw new Error("AI not configured properly");
   }
 
-  const rawText = extractRawText(data);
+  if (!rawJson) {
+    throw new Error("AI temporarily unavailable");
+  }
+
+  const rawText = extractTextFromRawJson(rawJson);
+
+  if (!rawText) {
+    throw new Error("AI temporarily unavailable");
+  }
+
   const executiveSummary = extractSection(rawText, "Executive Summary");
   const marketContext = extractSection(rawText, "Market Context");
   const technicalAnalysis = extractSection(rawText, "Technical Analysis");
@@ -255,12 +253,9 @@ export async function callGeminiAnalysis(
 Analyze ${symbol} for ${marketType} market.
 Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a confidence percentage (0-100), a signal (BUY/SELL/HOLD), approximate support and resistance levels, and a 2-sentence insight.`;
 
-  const { data, diagnostic } = await fetchGemini({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3 },
-  });
+  const rawJson = await callBackendProxy(prompt);
 
-  if (diagnostic) {
+  if (rawJson === "__API_NOT_CONFIGURED__") {
     return {
       trend: "neutral",
       confidence: 50,
@@ -268,13 +263,27 @@ Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a
       support_level: "N/A",
       resistance_level: "N/A",
       bias: "NEUTRAL",
-      insight: "AI connection retrying...",
-      summary: "AI connection retrying...",
-      diagnostic,
+      insight: "AI not configured properly",
+      summary: "AI not configured properly",
+      diagnostic: "AI not configured properly",
     };
   }
 
-  const text = extractRawText(data);
+  if (!rawJson) {
+    return {
+      trend: "neutral",
+      confidence: 50,
+      signal: "HOLD",
+      support_level: "N/A",
+      resistance_level: "N/A",
+      bias: "NEUTRAL",
+      insight: "AI temporarily unavailable",
+      summary: "AI temporarily unavailable",
+      diagnostic: "AI temporarily unavailable",
+    };
+  }
+
+  const text = extractTextFromRawJson(rawJson);
   const biasMatch = text.match(/\b(BULLISH|BEARISH|NEUTRAL)\b/i);
   const confMatch = text.match(/(\d{1,3})\s*%?\s*confidence/i);
   const signalMatch = text.match(/\b(STRONG BUY|STRONG SELL|BUY|SELL|HOLD)\b/i);
@@ -294,10 +303,8 @@ Provide a brief analysis. Include your overall bias (BULLISH/BEARISH/NEUTRAL), a
 }
 
 export async function callGeminiRaw(prompt: string): Promise<string> {
-  const { data, diagnostic } = await fetchGemini({
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3 },
-  });
-  if (diagnostic) return "AI connection retrying...";
-  return extractRawText(data);
+  const rawJson = await callBackendProxy(prompt);
+  if (rawJson === "__API_NOT_CONFIGURED__") return "AI not configured properly";
+  if (!rawJson) return "AI temporarily unavailable";
+  return extractTextFromRawJson(rawJson) || "AI temporarily unavailable";
 }

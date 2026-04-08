@@ -1,0 +1,67 @@
+type http_request_result = 
+ record {
+   body: blob;
+   headers: vec http_header;
+   status: nat;
+ };
+type http_header = 
+ record {
+   name: text;
+   value: text;
+ };
+type VideoDifficulty = 
+ variant {
+   advanced;
+   beginner;
+ };
+type UserRole = 
+ variant {
+   admin;
+   guest;
+   user;
+ };
+type UserProfile = 
+ record {
+   email: text;
+   name: text;
+   subscriptionTier: text;
+ };
+type TransformationOutput = 
+ record {
+   body: blob;
+   headers: vec http_header;
+   status: nat;
+ };
+type TransformationInput = 
+ record {
+   context: blob;
+   response: http_request_result;
+ };
+service : {
+  _initializeAccessControl: () -> ();
+  addVideo: (title: text, description: text, videoUrl: text, thumbnailUrl:
+   text, difficulty: VideoDifficulty) -> (nat);
+  assignCallerUserRole: (user: principal, role: UserRole) -> ();
+  deleteVideo: (videoId: nat) -> ();
+  geminiTransform: (input: TransformationInput) ->
+   (TransformationOutput) query;
+  getCallerUserProfile: () -> (opt UserProfile) query;
+  getCallerUserRole: () -> (UserRole) query;
+  getUserProfile: (user: principal) -> (opt UserProfile) query;
+  getVideos: () ->
+   (vec
+     record {
+       description: text;
+       difficulty: text;
+       id: nat;
+       thumbnailUrl: text;
+       title: text;
+       uploaded_at: int;
+       uploaderPrincipal: blob;
+       videoUrl: text;
+     }) query;
+  isCallerAdmin: () -> (bool) query;
+  proxyGemini: (prompt: text) -> (text);
+  researchWithGemini: (ticker: text) -> (text);
+  saveCallerUserProfile: (profile: UserProfile) -> ();
+}

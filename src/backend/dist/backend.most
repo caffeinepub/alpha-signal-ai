@@ -1,0 +1,115 @@
+// Version: 1.0.0
+type AffiliateClick__79356609 =
+  {assetSymbol : Text; exchange : Text; timestamp : Int};
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type Map__158565046<K, V> = Map__297112838<K, V>;
+type Map__297112838<K, V> =
+  {var root : Node__46230540<K, V>; var size : Nat__490723111};
+type Map__605269027<K, V> = Map__158565046<K, V>;
+type MarketAsset__261987803 =
+  {
+    change24h : Float;
+    high24h : Float;
+    low24h : Float;
+    name : Text;
+    price : Float;
+    symbol : Text;
+    volume : Float
+  };
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type OTPRecord__170252474 = {expiresAt : Int; otp : Text; phone : Text};
+type Session__107932720 =
+  {createdAt : Int; expiresAt : Int; role : Text; token : Text; userId : Nat};
+type TradeRecord__984271701 =
+  {
+    direction : Text;
+    entryPrice : Float;
+    exitPrice : Float;
+    id : Nat;
+    outcome : Text;
+    pnl : Float;
+    pnlPercent : Float;
+    symbol : Text;
+    timestamp : Int
+  };
+type UserAccount__518253964 =
+  {
+    createdAt : Int;
+    email : Text;
+    id : Nat;
+    isBanned : Bool;
+    name : Text;
+    passwordHash : Text;
+    phone : Text;
+    role : Text
+  };
+type UserProfile__491224006 =
+  {email : Text; name : Text; subscriptionTier : Text};
+type UserRole__1054455867 = {#admin; #guest; #user};
+type VideoDifficulty__458396320 = {#advanced; #beginner};
+type Video__127466529 =
+  {
+    description : Text;
+    difficulty : VideoDifficulty__458396320;
+    id : Nat;
+    thumbnailUrl : Text;
+    title : Text;
+    uploaded_at : Int;
+    uploaderPrincipal : Principal;
+    videoUrl : Text
+  };
+actor {
+  stable accessControlState :
+    {
+      var adminAssigned : Bool;
+      userRoles : Map__605269027<Principal, UserRole__1054455867>
+    };
+  stable adminEmail : Text;
+  stable affiliateClickStore :
+    {
+      var root : Node__46230540<Nat, AffiliateClick__79356609>;
+      var size : Nat__490723111
+    };
+  stable var cachedMarketData :
+    {assets : [MarketAsset__261987803]; timestamp : Int};
+  stable var nextAffiliateId : Nat;
+  stable var nextUserId : Nat;
+  stable var nextVideoId : Nat;
+  stable otpRecords :
+    {
+      var root : Node__46230540<Text, OTPRecord__170252474>;
+      var size : Nat__490723111
+    };
+  stable sessions :
+    {
+      var root : Node__46230540<Text, Session__107932720>;
+      var size : Nat__490723111
+    };
+  stable userAccounts :
+    {
+      var root : Node__46230540<Nat, UserAccount__518253964>;
+      var size : Nat__490723111
+    };
+  stable userProfiles :
+    {
+      var root : Node__46230540<Principal, UserProfile__491224006>;
+      var size : Nat__490723111
+    };
+  stable userTrades :
+    {
+      var root : Node__46230540<Principal, [TradeRecord__984271701]>;
+      var size : Nat__490723111
+    };
+  stable videos :
+    {
+      var root : Node__46230540<Nat, Video__127466529>;
+      var size : Nat__490723111
+    }
+};

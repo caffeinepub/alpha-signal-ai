@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Menu, RefreshCw, Shield } from "lucide-react";
 import { useState } from "react";
 
@@ -10,6 +11,9 @@ interface HeaderProps {
 export default function Header({ onMenuToggle }: HeaderProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const isAdmin = localStorage.getItem("isAdmin") === "true";
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -216,17 +220,21 @@ export default function Header({ onMenuToggle }: HeaderProps) {
           <span className="hidden sm:inline ml-1.5 text-xs">Refresh</span>
         </Button>
 
-        <div
-          data-ocid="header.user.panel"
-          className="flex items-center gap-2 pl-2 border-l border-border/40"
-        >
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 border border-border/40">
+        <div className="flex items-center gap-2 pl-2 border-l border-border/40">
+          <button
+            type="button"
+            data-ocid="header.admin.button"
+            onClick={() =>
+              navigate({ to: isAdmin ? "/admin" : "/admin-login" })
+            }
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 border border-border/40 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all cursor-pointer"
+          >
             <Shield className="w-3 h-3 text-hold" />
             <span className="text-xs font-medium text-foreground">Admin</span>
             <span className="text-[9px] font-bold font-mono px-1 py-0.5 rounded bg-hold/20 text-hold">
               ADMIN
             </span>
-          </div>
+          </button>
         </div>
       </div>
     </header>

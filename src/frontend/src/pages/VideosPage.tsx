@@ -1,5 +1,7 @@
-import { VideoDifficulty } from "@/backend";
 import { useActor } from "@/hooks/useActor";
+
+// Local enum mirrors backend VideoDifficulty variants
+const VideoDifficulty = { advanced: "advanced", beginner: "beginner" } as const;
 import { useAdminGate } from "@/hooks/useAdminGate";
 import { cn } from "@/lib/utils";
 import {

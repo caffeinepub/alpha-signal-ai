@@ -11,17 +11,13 @@ import Map "mo:core/Map";
 import Iter "mo:core/Iter";
 import Array "mo:core/Array";
 
-import MixinStorage "blob-storage/Mixin";
-import AccessControl "authorization/access-control";
-import MixinAuthorization "authorization/MixinAuthorization";
+import AccessControl "mo:caffeineai-authorization/access-control";
+import MixinAuthorization "mo:caffeineai-authorization/MixinAuthorization";
 import Blob "mo:core/Blob";
-import Outcall "http-outcalls/outcall";
+import Outcall "mo:caffeineai-http-outcalls/outcall";
 
 
 actor {
-  // Include storage system
-  include MixinStorage();
-
   // Include authorization system
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -343,11 +339,11 @@ actor {
     Outcall.transform(input);
   };
 
-  // researchWithGemini: calls Gemini 1.5 Pro API and returns raw text response
-  public shared func researchWithGemini(ticker : Text) : async Text {
-    let apiKey = "AIzaSyCWa67g5dBoBapoigC4ULhkgl70WSaWsN8";
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=" # apiKey;
-    let prompt = "Generate a professional institutional-level trading analysis for " # ticker # ". Include: Executive Summary, Market Context, Technical Analysis, Trade Bias (STRONG BUY/BUY/HOLD/SELL/STRONG SELL with reasoning), and Trade Setup (Entry, Stop Loss, Target 1, Target 2). Be specific and professional.";
+  // proxyGemini: backend proxy to Gemini 1.5 Flash — keeps API key secure, avoids CORS
+  // Called by frontend via /api/gemini pattern
+  public shared func proxyGemini(prompt : Text) : async Text {
+    let apiKey = "AIzaSyCywdVJUptlhXCvLn3qpxsqm2mSpYd6QpQ";
+    let url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" # apiKey;
     let body = "{\"contents\":[{\"parts\":[{\"text\":\"" # prompt # "\"}]}],\"generationConfig\":{\"temperature\":0.4,\"maxOutputTokens\":1500}}";
     try {
       let response = await Outcall.httpPostRequest(
@@ -358,8 +354,14 @@ actor {
       );
       response;
     } catch (e) {
-      "AI analysis temporarily unavailable. Please retry.";
+      "ERROR:AI temporarily unavailable";
     };
+  };
+
+  // researchWithGemini: legacy alias — delegates to proxyGemini with a full research prompt
+  public shared func researchWithGemini(ticker : Text) : async Text {
+    let prompt = "Generate a professional institutional-level trading analysis for " # ticker # ". Include: Executive Summary, Market Context, Technical Analysis, Trade Bias (STRONG BUY/BUY/HOLD/SELL/STRONG SELL with reasoning), and Trade Setup (Entry, Stop Loss, Target 1, Target 2). Be specific and professional.";
+    await proxyGemini(prompt);
   };
 
 };

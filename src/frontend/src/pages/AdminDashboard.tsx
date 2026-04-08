@@ -1,807 +1,426 @@
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { useActor } from "@/hooks/useActor";
 import { useAdminGate } from "@/hooks/useAdminGate";
-import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  Activity,
-  AlertTriangle,
-  Ban,
-  CheckCircle2,
-  Circle,
-  ExternalLink,
-  Eye,
+  Brain,
+  Globe,
   LogOut,
-  Monitor,
-  Search,
+  Megaphone,
   Shield,
-  Smartphone,
-  Tablet,
   Trash2,
-  UserMinus,
-  Users,
+  Video,
   Zap,
 } from "lucide-react";
-import { motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────────
+type SignalOverride = "AUTO" | "BUY" | "SELL" | "WAIT";
+type MarketStatus = "Trending" | "Sideways" | "Volatile";
 
-function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+interface VideoEntry {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  addedAt: number;
 }
 
-function timeAgo(ms: number): string {
-  const diffMs = Date.now() - ms;
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-  if (diffDay > 30) return formatDate(ms);
-  if (diffDay >= 1) return `${diffDay}d ago`;
-  if (diffHour >= 1) return `${diffHour}h ago`;
-  if (diffMin >= 1) return `${diffMin}m ago`;
-  return "just now";
-}
-
-function deriveIP(id: number): string {
-  return `104.28.${id % 255}.${(id * 7) % 255}`;
-}
-
-type DeviceInfo = { label: string; Icon: typeof Monitor };
-
-function getDeviceType(userAgent: string): DeviceInfo {
-  const ua = userAgent.toLowerCase();
-  if (/tablet|ipad|kindle|silk|playbook/.test(ua))
-    return { label: "Tablet", Icon: Tablet };
-  if (/mobile|android|iphone|ipod|blackberry|windows phone/.test(ua))
-    return { label: "Mobile", Icon: Smartphone };
-  return { label: "Desktop", Icon: Monitor };
-}
-
-// ─── Local user store (mirrors AuthService) ───────────────────────────────────────────
-
-const USERS_KEY = "alpha_users_db";
-
-type StoredUser = {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  role: string;
-  createdAt: number;
-};
-
-function loadUsers(): StoredUser[] {
+function loadVideos(): VideoEntry[] {
   try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || "[]") as StoredUser[];
+    return JSON.parse(localStorage.getItem("adminVideos") || "[]");
   } catch {
     return [];
   }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────────
+function saveVideos(videos: VideoEntry[]) {
+  localStorage.setItem("adminVideos", JSON.stringify(videos));
+}
 
 export default function AdminDashboard() {
-  const { actor } = useActor();
-  const { user } = useAuth();
-  const { lockAdmin } = useAdminGate();
+  const { isAdminVerified, logout } = useAdminGate();
   const navigate = useNavigate();
-  const currentDevice = getDeviceType(navigator.userAgent);
 
-  // Load users from localStorage
-  const [rawUsers] = useState<StoredUser[]>(() => loadUsers());
+  useEffect(() => {
+    const isAdmin = localStorage.getItem("isAdmin") === "true";
+    console.log("[Admin] Admin state on panel load:", isAdmin);
+    if (!isAdmin) {
+      navigate({ to: "/admin-login" });
+    }
+  }, [navigate]);
 
-  // Search / filter state
-  const [emailSearch, setEmailSearch] = useState("");
-  const [mobileSearch, setMobileSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
-
-  // Client-side ban/disable/delete
-  const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
-  const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
-  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
-
-  // Dialog state
-  const [viewUser, setViewUser] = useState<StoredUser | null>(null);
-  const [deleteConfirmUser, setDeleteConfirmUser] = useState<StoredUser | null>(
-    null,
-  );
-
-  const users = useMemo(
-    () => rawUsers.filter((u) => !deletedIds.has(u.id.toString())),
-    [rawUsers, deletedIds],
-  );
-
-  const visibleUsers = useMemo(
+  // Signal Control
+  const [signalOverride, setSignalOverride] = useState<SignalOverride>(
     () =>
-      users.filter((u) => {
-        if (
-          emailSearch &&
-          !u.email.toLowerCase().includes(emailSearch.toLowerCase())
-        )
-          return false;
-        if (
-          mobileSearch &&
-          !u.phone.toLowerCase().includes(mobileSearch.toLowerCase())
-        )
-          return false;
-        if (roleFilter !== "all" && u.role !== roleFilter) return false;
-        return true;
-      }),
-    [users, emailSearch, mobileSearch, roleFilter],
+      (localStorage.getItem("adminSignalOverride") as SignalOverride) || "AUTO",
   );
 
-  const totalUsers = users.length;
-  const bannedCount = bannedIds.size;
-  const activeSessions = Math.max(1, users.length);
+  // Market Control
+  const [marketStatus, setMarketStatus] = useState<MarketStatus>(
+    () => (localStorage.getItem("marketStatus") as MarketStatus) || "Trending",
+  );
 
-  // Mock affiliate clicks
-  const affiliateClicks: Record<string, number> = {
-    binance: 42,
-    bybit: 18,
-    okx: 11,
+  // AI Control
+  const [geminiEnabled, setGeminiEnabled] = useState<boolean>(
+    () => localStorage.getItem("geminiEnabled") !== "false",
+  );
+
+  // Broadcast
+  const [broadcastInput, setBroadcastInput] = useState(
+    () => localStorage.getItem("broadcastMessage") || "",
+  );
+  const [broadcastSaved, setBroadcastSaved] = useState(false);
+
+  // Videos
+  const [videos, setVideos] = useState<VideoEntry[]>(loadVideos);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoDesc, setVideoDesc] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+
+  const handleSignalOverride = (val: SignalOverride) => {
+    setSignalOverride(val);
+    localStorage.setItem("adminSignalOverride", val);
+    console.log("[Admin] Signal override set to:", val);
   };
 
-  // Stats: only Total Users and Active Sessions shown to admin
-  const stats = [
-    {
-      label: "Total Users",
-      value: totalUsers,
-      icon: Users,
-      color: "text-primary",
-    },
-    {
-      label: "Active Sessions",
-      value: activeSessions,
-      icon: Activity,
-      color: "text-bull",
-    },
+  const handleMarketStatus = (val: MarketStatus) => {
+    setMarketStatus(val);
+    localStorage.setItem("marketStatus", val);
+  };
+
+  const handleGeminiToggle = (val: boolean) => {
+    setGeminiEnabled(val);
+    localStorage.setItem("geminiEnabled", val ? "true" : "false");
+  };
+
+  const handleBroadcast = () => {
+    localStorage.setItem("broadcastMessage", broadcastInput);
+    setBroadcastSaved(true);
+    setTimeout(() => setBroadcastSaved(false), 2000);
+  };
+
+  const handleClearBroadcast = () => {
+    setBroadcastInput("");
+    localStorage.removeItem("broadcastMessage");
+  };
+
+  const handleAddVideo = () => {
+    if (!videoTitle.trim() || !videoUrl.trim()) return;
+    const newVideo: VideoEntry = {
+      id: Date.now().toString(),
+      title: videoTitle.trim(),
+      description: videoDesc.trim(),
+      url: videoUrl.trim(),
+      addedAt: Date.now(),
+    };
+    const updated = [newVideo, ...videos];
+    setVideos(updated);
+    saveVideos(updated);
+    setVideoTitle("");
+    setVideoDesc("");
+    setVideoUrl("");
+  };
+
+  const handleDeleteVideo = (id: string) => {
+    const updated = videos.filter((v) => v.id !== id);
+    setVideos(updated);
+    saveVideos(updated);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate({ to: "/" });
+  };
+
+  if (!isAdminVerified) return null;
+
+  const signalOptions: { val: SignalOverride; label: string; color: string }[] =
+    [
+      {
+        val: "AUTO",
+        label: "AUTO",
+        color: "text-cyan-400 border-cyan-500/40 bg-cyan-500/10",
+      },
+      {
+        val: "BUY",
+        label: "BUY 🟢",
+        color: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
+      },
+      {
+        val: "SELL",
+        label: "SELL 🔴",
+        color: "text-red-400 border-red-500/40 bg-red-500/10",
+      },
+      {
+        val: "WAIT",
+        label: "WAIT ⚠️",
+        color: "text-amber-400 border-amber-500/40 bg-amber-500/10",
+      },
+    ];
+
+  const marketOptions: { val: MarketStatus; label: string }[] = [
+    { val: "Trending", label: "📈 Trending" },
+    { val: "Sideways", label: "⚠️ Sideways" },
+    { val: "Volatile", label: "🔥 Volatile" },
   ];
-
-  const loginActivity = [...users]
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 10);
-
-  const statusRows = [
-    { label: "Backend Canister", status: actor ? "OPERATIONAL" : "OFFLINE" },
-    { label: "Authentication Service", status: "OPERATIONAL" },
-    { label: "Market Data Feed", status: "OPERATIONAL" },
-  ];
-
-  const now = new Date().toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="p-4 lg:p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <Shield className="w-5 h-5 text-hold" />
-            Admin Dashboard
+            <Shield className="w-5 h-5 text-amber-400" />
+            Admin Control Panel
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[10px] font-bold font-mono uppercase tracking-wider">
-              <Shield className="w-3 h-3" /> ADMIN LOCKED
+              ADMIN LOCKED
             </span>
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Logged in as{" "}
-            <span className="text-foreground font-medium">{user?.name}</span>
+            Full control system — changes apply instantly
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className="border-bull/40 text-bull bg-bull/10 font-mono text-[10px] gap-1"
-          >
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bull opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-bull" />
-            </span>
-            {activeSessions} Active Sessions
-          </Badge>
-          <Button
-            size="sm"
-            variant="outline"
-            data-ocid="admin.lock_session.button"
-            onClick={() => {
-              lockAdmin();
-              navigate({ to: "/" });
-            }}
-            className="h-7 px-3 text-[10px] font-mono border-amber-500/40 text-amber-400 hover:bg-amber-500/10 gap-1.5"
-          >
-            <LogOut className="w-3 h-3" /> Lock Session
-          </Button>
-        </div>
+        <button
+          type="button"
+          data-ocid="admin.logout.button"
+          onClick={handleLogout}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors text-xs font-mono"
+        >
+          <LogOut className="w-3 h-3" /> Logout
+        </button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-3">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.07, duration: 0.3 }}
-            className="trading-card p-4"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-                {stat.label}
-              </span>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
-            </div>
-            <div className={`text-2xl font-black font-mono ${stat.color}`}>
-              {stat.value}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* User Management Table */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.28, duration: 0.4 }}
-        className="trading-card overflow-hidden"
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <Users className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-semibold tracking-wide">
-              User Management
-            </span>
-          </div>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            {users.filter((u) => !bannedIds.has(u.id.toString())).length} active
-            · {bannedCount} banned
+      {/* 1. Signal Control */}
+      <section className="trading-card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+          <Zap className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-bold text-foreground">Signal Control</h3>
+          <span className="text-xs text-muted-foreground ml-auto">
+            {signalOverride === "AUTO"
+              ? "System auto-generating signals"
+              : `⚠️ Manual override active: ${signalOverride}`}
           </span>
         </div>
-
-        {/* Search & Filter */}
-        <div className="px-4 py-3 border-b border-border/20 flex flex-wrap gap-2">
-          <div className="relative flex-1 min-w-[140px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              data-ocid="admin.email_search.input"
-              placeholder="Search by email..."
-              value={emailSearch}
-              onChange={(e) => setEmailSearch(e.target.value)}
-              className="pl-8 h-8 text-xs font-mono bg-background/50 border-border/40"
-            />
-          </div>
-          <div className="relative flex-1 min-w-[140px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              data-ocid="admin.mobile_search.input"
-              placeholder="Search by mobile..."
-              value={mobileSearch}
-              onChange={(e) => setMobileSearch(e.target.value)}
-              className="pl-8 h-8 text-xs font-mono bg-background/50 border-border/40"
-            />
-          </div>
-          <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger
-              data-ocid="admin.role_filter.select"
-              className="h-8 w-[120px] text-xs font-mono bg-background/50 border-border/40"
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {signalOptions.map(({ val, label, color }) => (
+            <button
+              key={val}
+              type="button"
+              data-ocid={`admin.signal_override.${val.toLowerCase()}.button`}
+              onClick={() => handleSignalOverride(val)}
+              className={`px-3 py-2.5 rounded-lg border text-xs font-bold font-mono transition-all ${
+                signalOverride === val
+                  ? color
+                  : "text-muted-foreground border-border/40 hover:border-border bg-transparent"
+              }`}
             >
-              <SelectValue placeholder="Role" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs font-mono">
-                All Roles
-              </SelectItem>
-              <SelectItem value="admin" className="text-xs font-mono">
-                Admin
-              </SelectItem>
-              <SelectItem value="user" className="text-xs font-mono">
-                User
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {visibleUsers.length === 0 ? (
-          <div
-            data-ocid="admin.users.empty_state"
-            className="flex flex-col items-center justify-center py-12 text-muted-foreground"
-          >
-            <Users className="w-8 h-8 mb-2 opacity-30" />
-            <span className="text-xs">No users match filters</span>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table data-ocid="admin.users.table">
-              <TableHeader>
-                <TableRow className="border-border/30 hover:bg-transparent">
-                  {[
-                    "ID",
-                    "Name",
-                    "Email",
-                    "Mobile",
-                    "Role",
-                    "Status",
-                    "Joined",
-                    "Actions",
-                  ].map((h) => (
-                    <TableHead
-                      key={h}
-                      className="text-[10px] font-bold font-mono text-muted-foreground/60 uppercase tracking-widest"
-                    >
-                      {h}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleUsers.map((u, idx) => {
-                  const isBanned = bannedIds.has(u.id.toString());
-                  const isDisabled = disabledIds.has(u.id.toString());
-                  return (
-                    <TableRow
-                      key={u.id.toString()}
-                      data-ocid={`admin.users.item.${idx + 1}`}
-                      className="border-border/10 hover:bg-white/[0.025] transition-colors"
-                    >
-                      <TableCell className="text-[10px] font-mono text-muted-foreground/60 py-3">
-                        #{u.id.toString().slice(-6)}
-                      </TableCell>
-                      <TableCell className="text-xs font-medium text-foreground py-3">
-                        {u.name}
-                      </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground py-3">
-                        {u.email || "—"}
-                      </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground py-3">
-                        {u.phone || "—"}
-                      </TableCell>
-                      <TableCell className="py-3">
-                        <Badge
-                          variant="outline"
-                          className={`text-[9px] font-bold font-mono ${
-                            u.role === "admin"
-                              ? "border-hold/40 text-hold bg-hold/10"
-                              : "border-primary/30 text-primary bg-primary/10"
-                          }`}
-                        >
-                          {u.role.toUpperCase()}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-3">
-                        {isBanned ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-bear/20 text-bear border border-bear/30">
-                            <Ban className="w-2.5 h-2.5" /> BANNED
-                          </span>
-                        ) : isDisabled ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-hold/20 text-hold border border-hold/30">
-                            <UserMinus className="w-2.5 h-2.5" /> DISABLED
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-bull/20 text-bull border border-bull/30">
-                            <Zap className="w-2.5 h-2.5" /> ACTIVE
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-[10px] font-mono text-muted-foreground py-3">
-                        {formatDate(u.createdAt)}
-                      </TableCell>
-                      <TableCell className="py-3">
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            data-ocid={`admin.view_button.${idx + 1}`}
-                            onClick={() => setViewUser(u)}
-                            className="h-6 px-2 text-[10px] font-mono border-primary/30 text-primary hover:bg-primary/10"
-                          >
-                            <Eye className="w-2.5 h-2.5 mr-1" /> View
-                          </Button>
-                          {u.role !== "admin" && !isBanned && !isDisabled && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              data-ocid={`admin.disable_button.${idx + 1}`}
-                              onClick={() =>
-                                setDisabledIds((prev) => {
-                                  const next = new Set(prev);
-                                  next.add(u.id.toString());
-                                  return next;
-                                })
-                              }
-                              className="h-6 px-2 text-[10px] font-mono border-hold/40 text-hold hover:bg-hold/10"
-                            >
-                              <UserMinus className="w-2.5 h-2.5 mr-1" /> Disable
-                            </Button>
-                          )}
-                          {u.role !== "admin" && !isBanned && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              data-ocid={`admin.ban_button.${idx + 1}`}
-                              onClick={() =>
-                                setBannedIds((prev) => {
-                                  const next = new Set(prev);
-                                  next.add(u.id.toString());
-                                  return next;
-                                })
-                              }
-                              className="h-6 px-2 text-[10px] font-mono border-bear/40 text-bear hover:bg-bear/10 hover:border-bear/60"
-                            >
-                              <Ban className="w-2.5 h-2.5 mr-1" /> Ban
-                            </Button>
-                          )}
-                          {u.role !== "admin" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              data-ocid={`admin.delete_button.${idx + 1}`}
-                              onClick={() => setDeleteConfirmUser(u)}
-                              className="h-6 px-2 text-[10px] font-mono border-bear/60 text-bear hover:bg-bear/10"
-                            >
-                              <Trash2 className="w-2.5 h-2.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </motion.div>
-
-      {/* Affiliate Clicks */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.35, duration: 0.4 }}
-        className="trading-card overflow-hidden"
-        data-ocid="admin.affiliate.panel"
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <ExternalLink className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-semibold tracking-wide">
-              Affiliate Click Stats
-            </span>
-          </div>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            {Object.values(affiliateClicks).reduce((a, b) => a + b, 0)} total
-          </span>
-        </div>
-        <div className="grid grid-cols-3 divide-x divide-border/20">
-          {(["binance", "bybit", "okx"] as const).map((exchange, i) => (
-            <div
-              key={exchange}
-              data-ocid={`admin.affiliate.item.${i + 1}`}
-              className="flex flex-col items-center py-4"
-            >
-              <span className="text-2xl font-black font-mono text-primary">
-                {affiliateClicks[exchange] || 0}
-              </span>
-              <span className="text-[10px] font-bold font-mono text-muted-foreground uppercase tracking-widest mt-1">
-                {exchange}
-              </span>
-            </div>
+              {label}
+            </button>
           ))}
         </div>
-      </motion.div>
-
-      {/* Login Activity */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.42, duration: 0.4 }}
-        className="trading-card overflow-hidden"
-        data-ocid="admin.login_activity.panel"
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-semibold tracking-wide">
-              Login Activity
-            </span>
-          </div>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            Last 10 events
-          </span>
-        </div>
-        {loginActivity.length === 0 ? (
-          <div
-            data-ocid="admin.login_activity.empty_state"
-            className="flex flex-col items-center justify-center py-8 text-muted-foreground"
-          >
-            <Activity className="w-6 h-6 mb-2 opacity-30" />
-            <span className="text-xs">No activity recorded</span>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table data-ocid="admin.login_activity.table">
-              <TableHeader>
-                <TableRow className="border-border/30 hover:bg-transparent">
-                  {["User", "Last Login", "IP Address", "Device"].map((h) => (
-                    <TableHead
-                      key={h}
-                      className="text-[10px] font-bold font-mono text-muted-foreground/60 uppercase tracking-widest"
-                    >
-                      {h}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loginActivity.map((u, idx) => {
-                  const DeviceIcon = currentDevice.Icon;
-                  return (
-                    <TableRow
-                      key={u.id.toString()}
-                      data-ocid={`admin.login_activity.item.${idx + 1}`}
-                      className="border-border/10 hover:bg-white/[0.025] transition-colors"
-                    >
-                      <TableCell className="py-2.5">
-                        <div>
-                          <div className="text-xs font-medium text-foreground">
-                            {u.name}
-                          </div>
-                          <div className="text-[10px] font-mono text-muted-foreground">
-                            {u.email || u.phone || "—"}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-[10px] font-mono text-muted-foreground py-2.5">
-                        {timeAgo(u.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-[10px] font-mono text-muted-foreground py-2.5">
-                        {deriveIP(u.id)}
-                      </TableCell>
-                      <TableCell className="py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <DeviceIcon className="w-3 h-3 text-muted-foreground/60" />
-                          <span className="text-[10px] font-mono text-muted-foreground">
-                            {currentDevice.label}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+        {signalOverride !== "AUTO" && (
+          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+            ⚠️ Manual override is active. All signals are showing{" "}
+            <strong>{signalOverride}</strong> globally. Set to AUTO to restore
+            normal operation.
           </div>
         )}
-      </motion.div>
+      </section>
 
-      {/* System Status */}
-      <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5, duration: 0.35 }}
-        className="trading-card overflow-hidden"
-        data-ocid="admin.system_status.panel"
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5 text-bull" />
-            <span className="text-xs font-semibold tracking-wide">
-              System Status
-            </span>
-          </div>
-          <Badge
-            variant="outline"
-            className="border-bull/40 text-bull bg-bull/10 font-mono text-[9px]"
-          >
-            {actor ? "ONLINE" : "OFFLINE"}
-          </Badge>
+      {/* 2. Market Status Control */}
+      <section className="trading-card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+          <Globe className="w-4 h-4 text-blue-400" />
+          <h3 className="text-sm font-bold text-foreground">
+            Market Status Control
+          </h3>
         </div>
-        <div className="p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-              Last Checked
-            </span>
-            <span className="text-[10px] font-mono text-foreground">{now}</span>
+        <div className="grid grid-cols-3 gap-2">
+          {marketOptions.map(({ val, label }) => (
+            <button
+              key={val}
+              type="button"
+              data-ocid={`admin.market_status.${val.toLowerCase()}.button`}
+              onClick={() => handleMarketStatus(val)}
+              className={`px-3 py-2.5 rounded-lg border text-xs font-bold transition-all ${
+                marketStatus === val
+                  ? val === "Sideways"
+                    ? "text-amber-400 border-amber-500/40 bg-amber-500/10"
+                    : val === "Volatile"
+                      ? "text-red-400 border-red-500/40 bg-red-500/10"
+                      : "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
+                  : "text-muted-foreground border-border/40 hover:border-border bg-transparent"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Dashboard will show:{" "}
+          <strong className="text-foreground">
+            Market Status: {marketStatus}{" "}
+            {marketStatus === "Sideways"
+              ? "⚠️"
+              : marketStatus === "Volatile"
+                ? "🔥"
+                : "📈"}
+          </strong>
+        </p>
+      </section>
+
+      {/* 3. AI (Gemini) Control */}
+      <section className="trading-card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+          <Brain className="w-4 h-4 text-violet-400" />
+          <h3 className="text-sm font-bold text-foreground">
+            AI Control (Gemini)
+          </h3>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-ocid="admin.gemini.on.toggle"
+              onClick={() => handleGeminiToggle(true)}
+              className={`px-4 py-2 rounded-lg border text-xs font-bold transition-all ${
+                geminiEnabled
+                  ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
+                  : "text-muted-foreground border-border/40"
+              }`}
+            >
+              ON ✅
+            </button>
+            <button
+              type="button"
+              data-ocid="admin.gemini.off.toggle"
+              onClick={() => handleGeminiToggle(false)}
+              className={`px-4 py-2 rounded-lg border text-xs font-bold transition-all ${
+                !geminiEnabled
+                  ? "text-red-400 border-red-500/40 bg-red-500/10"
+                  : "text-muted-foreground border-border/40"
+              }`}
+            >
+              OFF ❌
+            </button>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-              Uptime
-            </span>
-            <span className="text-[10px] font-mono text-bull">99.9%</span>
-          </div>
-          <div className="border-t border-border/30 pt-2 mt-2 space-y-1.5">
-            {statusRows.map((row) => (
+          <p className="text-xs text-muted-foreground">
+            {geminiEnabled
+              ? "Gemini AI analysis is active and working."
+              : "AI prediction section is hidden from users."}
+          </p>
+        </div>
+      </section>
+
+      {/* 4. Broadcast Message */}
+      <section className="trading-card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+          <Megaphone className="w-4 h-4 text-amber-400" />
+          <h3 className="text-sm font-bold text-foreground">
+            Broadcast Message
+          </h3>
+        </div>
+        <textarea
+          data-ocid="admin.broadcast.textarea"
+          value={broadcastInput}
+          onChange={(e) => setBroadcastInput(e.target.value)}
+          placeholder="e.g. ⚠️ Avoid trading, market sideways"
+          rows={3}
+          className="w-full px-3 py-2 bg-background/50 border border-border/40 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            data-ocid="admin.broadcast.submit_button"
+            onClick={handleBroadcast}
+            className="px-4 py-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-colors"
+          >
+            {broadcastSaved ? "✅ Saved!" : "📢 Send Broadcast"}
+          </button>
+          <button
+            type="button"
+            data-ocid="admin.broadcast.cancel_button"
+            onClick={handleClearBroadcast}
+            className="px-4 py-2 rounded-lg border border-border/40 text-muted-foreground text-xs font-bold hover:border-border transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Message shows as a banner on all pages for all users.
+        </p>
+      </section>
+
+      {/* 5. Video Upload */}
+      <section className="trading-card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+          <Video className="w-4 h-4 text-blue-400" />
+          <h3 className="text-sm font-bold text-foreground">Video Upload</h3>
+        </div>
+        <div className="space-y-3">
+          <input
+            type="text"
+            data-ocid="admin.video.input"
+            value={videoTitle}
+            onChange={(e) => setVideoTitle(e.target.value)}
+            placeholder="Video Title"
+            className="w-full px-3 py-2 bg-background/50 border border-border/40 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+          />
+          <textarea
+            value={videoDesc}
+            onChange={(e) => setVideoDesc(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+            className="w-full px-3 py-2 bg-background/50 border border-border/40 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none"
+          />
+          <input
+            type="url"
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+            placeholder="YouTube URL (e.g. https://www.youtube.com/watch?v=...)"
+            className="w-full px-3 py-2 bg-background/50 border border-border/40 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+          />
+          <button
+            type="button"
+            data-ocid="admin.video.primary_button"
+            onClick={handleAddVideo}
+            disabled={!videoTitle.trim() || !videoUrl.trim()}
+            className="px-4 py-2 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-400 text-xs font-bold hover:bg-blue-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            + Add Video
+          </button>
+        </div>
+
+        {videos.length > 0 && (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            <p className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
+              {videos.length} video{videos.length !== 1 ? "s" : ""} added
+            </p>
+            {videos.map((v, idx) => (
               <div
-                key={row.label}
-                className="flex items-center justify-between"
+                key={v.id}
+                data-ocid={`admin.video.item.${idx + 1}`}
+                className="flex items-center gap-3 p-2 rounded-lg bg-background/30 border border-border/20"
               >
-                <div className="flex items-center gap-2">
-                  {row.status === "OPERATIONAL" ? (
-                    <CheckCircle2 className="w-3 h-3 text-bull" />
-                  ) : (
-                    <Circle className="w-3 h-3 text-bear" />
-                  )}
-                  <span className="text-[11px] text-muted-foreground">
-                    {row.label}
-                  </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate">
+                    {v.title}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {v.url}
+                  </p>
                 </div>
-                <span
-                  className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${
-                    row.status === "OPERATIONAL"
-                      ? "bg-bull/10 text-bull border border-bull/20"
-                      : "bg-bear/10 text-bear border border-bear/20"
-                  }`}
+                <button
+                  type="button"
+                  data-ocid={`admin.video.delete_button.${idx + 1}`}
+                  onClick={() => handleDeleteVideo(v.id)}
+                  className="text-red-400/60 hover:text-red-400 transition-colors flex-shrink-0"
                 >
-                  {row.status}
-                </span>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
           </div>
-        </div>
-      </motion.div>
-
-      {/* Warning notice */}
-      <div className="flex items-start gap-2 text-xs text-hold bg-hold/10 border border-hold/30 rounded-lg px-4 py-3">
-        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <span>
-          Admin actions are logged and audited. Banned users cannot log in until
-          manually unbanned.
-        </span>
-      </div>
-
-      {/* View User Dialog */}
-      <Dialog
-        open={!!viewUser}
-        onOpenChange={(open) => !open && setViewUser(null)}
-      >
-        <DialogContent
-          data-ocid="admin.view_user.dialog"
-          className="bg-card border-border/50 max-w-md"
-        >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
-              <Eye className="w-4 h-4 text-primary" />
-              User Profile
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Full profile details for this account.
-            </DialogDescription>
-          </DialogHeader>
-          {viewUser && (
-            <div className="space-y-3 py-2">
-              {[
-                {
-                  label: "User ID",
-                  value: `#${viewUser.id.toString().slice(-6)}`,
-                },
-                { label: "Name", value: viewUser.name },
-                { label: "Email", value: viewUser.email || "—" },
-                { label: "Phone", value: viewUser.phone || "—" },
-                { label: "Role", value: viewUser.role.toUpperCase() },
-                {
-                  label: "Status",
-                  value: bannedIds.has(viewUser.id.toString())
-                    ? "BANNED"
-                    : disabledIds.has(viewUser.id.toString())
-                      ? "DISABLED"
-                      : "ACTIVE",
-                },
-                { label: "Created", value: formatDate(viewUser.createdAt) },
-                { label: "IP Address", value: deriveIP(viewUser.id) },
-                { label: "Device", value: currentDevice.label },
-              ].map(({ label, value }) => (
-                <div
-                  key={label}
-                  className="flex items-center justify-between border-b border-border/20 pb-2"
-                >
-                  <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-wider">
-                    {label}
-                  </span>
-                  <span className="text-xs font-mono text-foreground">
-                    {value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              data-ocid="admin.view_user.close_button"
-              size="sm"
-              variant="outline"
-              onClick={() => setViewUser(null)}
-              className="text-xs"
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirm Dialog */}
-      <Dialog
-        open={!!deleteConfirmUser}
-        onOpenChange={(open) => !open && setDeleteConfirmUser(null)}
-      >
-        <DialogContent
-          data-ocid="admin.delete_user.dialog"
-          className="bg-card border-border/50 max-w-sm"
-        >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm text-bear">
-              <Trash2 className="w-4 h-4" />
-              Delete User
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Are you sure you want to delete{" "}
-              <span className="text-foreground font-medium">
-                {deleteConfirmUser?.name}
-              </span>
-              ? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              data-ocid="admin.delete_user.cancel_button"
-              size="sm"
-              variant="outline"
-              onClick={() => setDeleteConfirmUser(null)}
-              className="text-xs"
-            >
-              Cancel
-            </Button>
-            <Button
-              data-ocid="admin.delete_user.confirm_button"
-              size="sm"
-              onClick={() => {
-                if (!deleteConfirmUser) return;
-                setDeletedIds((prev) => {
-                  const next = new Set(prev);
-                  next.add(deleteConfirmUser.id.toString());
-                  return next;
-                });
-                setDeleteConfirmUser(null);
-              }}
-              className="text-xs bg-bear hover:bg-bear/90 text-white"
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </section>
     </div>
   );
 }

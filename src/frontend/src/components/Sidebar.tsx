@@ -1,4 +1,3 @@
-import { useAdminGate } from "@/hooks/useAdminGate";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
@@ -83,7 +82,8 @@ export default function Sidebar({
   mobileOpen,
   setMobileOpen,
 }: SidebarProps) {
-  const { isAdminVerified } = useAdminGate();
+  const isAdmin = localStorage.getItem("isAdmin") === "true";
+
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -119,7 +119,7 @@ export default function Sidebar({
             LIVE
           </span>
           <span className="text-[9px] font-mono text-primary/70 ml-1 tracking-wide">
-            GEMINI 2.0 FLASH
+            GEMINI 1.5 FLASH
           </span>
           <span className="text-xs text-muted-foreground ml-auto font-mono">
             {new Date().toLocaleTimeString("en-US", { hour12: false })}
@@ -130,7 +130,7 @@ export default function Sidebar({
       {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-1">
         {navItems
-          .filter((item) => item.path !== "/admin" || isAdminVerified)
+          .filter((item) => item.path !== "/admin" || isAdmin)
           .map((item) => {
             const isActive =
               item.path === "/"
